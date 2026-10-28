@@ -1,6 +1,6 @@
 # DiscreteOps
 
-A Python and Streamlit interface for discrete mathematics and optimization. Product navigation leads to Explore, Workbench, Graph Explorer, Problem Studio, Visualizations, and About. The landing page is an interactive visual story; the Constraint Workbench builds real schedules with backtracking.
+A Python and Streamlit system that connects real-world problems to mathematical models, supported solvers, visual inspection, and explainable results. **Problem Studio** is the default entry point. The existing Workbench and Graph Explorer provide detailed inspection within those workflows; Explore retains the landing experience.
 
 ## Run locally
 
@@ -25,6 +25,7 @@ Open http://localhost:8501. On Windows, activate the environment with `.venv\Scr
 - `graph_algorithms.py`: Streamlit-independent graph validation and recorded BFS/DFS traversals.
 - `problem_studio.py`: guided scheduling/routing forms and model/solution inspection.
 - `problem_models.py`: Streamlit-independent model generation and adapters to existing solvers.
+- `workflow.py`: contextual method explanations and session handoffs that preserve existing inspection-page drafts.
 - `assets/styles.css`: shared palette, typography, responsive layout, and subtle motion.
 - `assets/experience.html`: a self-contained canvas component for the scroll narrative and visual lab.
 - `.streamlit/config.toml`: base Streamlit theme.
@@ -33,7 +34,24 @@ Explore progresses from points to connections to an illustrative constrained spa
 
 ## Problem Studio
 
-Choose **Task scheduling** or **Network routing**, enter inputs through the numbered form (or load an example), then **Build model**. Inspect the Variables, Constraints, and Objective tabs, along with the input-symbol mapping and assumptions. Building a model does not solve it. **Solve this model** runs only supported formulations; edits clear stale models and results. Studio inputs persist across navigation independently of the Workbench and Graph Explorer.
+Choose **Task scheduling** or **Network routing**, enter inputs through the numbered form (or load an example), then **Build model**. Inspect the Variables, Constraints, and Objective tabs, along with the input-symbol mapping and assumptions. Building a model does not solve it. **Solve this model** runs only supported formulations; edits clear stale models and results.
+
+Continue with **Inspect in Workbench** or **Visualize in Graph Explorer**. These actions carry the current inputs and, when available, the exact recorded solver run into the existing view without recomputing it. The Workbench displays schedule lanes and the search audit; Graph Explorer replays the BFS behind routing. The BFS traversal is a search over the reachable component, not the selected route itself; the route and destination stay in Studio. DFS remains available for exploration and does not replace the minimum-hop routing solver.
+
+Return using the provided button or sidebar. Input edits in a linked view update the Studio problem and invalidate its previous model/result; rebuild before solving again. Playback-only changes keep the Studio result. An existing independent Workbench/Graph Explorer draft is temporarily set aside and restored when leaving the linked view. Opening those pages directly retains their original standalone editing behavior. Unsupported objectives cannot be handed to a solver with different semantics.
+
+The **Methods behind this workflow** explanation uses the syllabus as a method vocabulary, not six product modules:
+
+| Syllabus area | Current role |
+| --- | --- |
+| Logic and Proofs | Constraint statements and verification of supported results |
+| Basic Counting | Decision-variable, constraint, and hop counts |
+| Advanced Combinatorial Techniques | Existing backtracking and pruning for scheduling feasibility |
+| Recurrence Relations and Generating Functions | Not yet applied in these workflows |
+| Modular Arithmetic | Not yet applied in these workflows |
+| Graph Theory | Scheduling conflict graphs and minimum-hop routing with BFS |
+
+Only relevant methods are described as applied to each model. These mappings do not claim full syllabus coverage or introduce new algorithms. The separate Visualizations page remains an illustrative study, not a computed result view.
 
 - Scheduling creates one slot-valued variable per task, domain constraints, and an inequality for each conflicting pair. The feasibility objective (`min 0`) reuses the existing backtracking scheduler and independent schedule audit. The optional **Minimize used slots** objective counts distinct assigned slots; it is explicitly **model only**, because the scheduler does not prove an optimum. Durations, deadlines, precedence, and capacity are outside the model.
 - Routing creates two binary arc variables for each undirected connection and a flow-conservation constraint at every node, with +1 at the source and −1 at the destination. The objective minimizes selected arcs (unit-cost hops). The existing BFS discovery tree supplies a shortest route; selected connections and flow balances are verified. Disconnected endpoints are reported as infeasible. Source and destination must differ. Weighted, directed, capacity-constrained, and multiple-route problems are unsupported.

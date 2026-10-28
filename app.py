@@ -8,7 +8,7 @@ from ui import PAGES, render_sidebar
 
 
 st.set_page_config(
-    page_title="DiscreteOps — A space for discrete thinking",
+    page_title="DiscreteOps — From problem to solution",
     page_icon="✳",
     layout="wide",
     initial_sidebar_state="auto",
@@ -16,9 +16,9 @@ st.set_page_config(
 
 st.html(Path(__file__).parent / "assets" / "styles.css")
 
-# Migrate sessions left open on the previous topic-based navigation.
+# New sessions start with a real-world problem; existing page selections survive.
 if st.session_state.get("page") not in PAGES:
-    st.session_state.page = "explore"
+    st.session_state.page = "studio"
 
 render_sidebar()
 

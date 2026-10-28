@@ -3,8 +3,8 @@
 from dataclasses import dataclass
 from typing import Literal
 
-from graph_algorithms import Graph, make_graph, traverse
-from solver import Problem, audit_schedule, make_problem, solve
+from graph_algorithms import Graph, Traversal, make_graph, traverse
+from solver import Problem, Result, audit_schedule, make_problem, solve
 
 
 @dataclass(frozen=True)
@@ -46,6 +46,8 @@ class Solution:
     schedule: tuple[tuple[str, str], ...] = ()
     route: tuple[str, ...] = ()
     objective_value: int | None = None
+    schedule_trace: Result | None = None
+    traversal: Traversal | None = None
 
 
 def scheduling_model(tasks: list[str], slots: list[str], conflicts: list[tuple[str, str]],
@@ -132,21 +134,21 @@ def solve_model(model: Model) -> Solution:
         problem = model.problem
         result = solve(problem)
         if result.status == "infeasible":
-            return Solution("infeasible", "The backtracking search exhausted all branches. No assignment satisfies these task conflicts with the supplied slots.")
+            return Solution("infeasible", "The backtracking search exhausted all branches. No assignment satisfies these task conflicts with the supplied slots.", schedule_trace=result)
         if result.status == "limit":
-            return Solution("limit", "The scheduler reached its search limit. Feasibility is unknown; no partial assignment is shown.")
+            return Solution("limit", "The scheduler reached its search limit. Feasibility is unknown; no partial assignment is shown.", schedule_trace=result)
         if audit_schedule(problem, result.assignments):
             raise RuntimeError("The schedule failed independent verification.")
         slot_ids = {slot: f"s{index}" for index, slot in enumerate(problem.slots, 1)}
         return Solution("solved", f"All {len(problem.tasks)} tasks receive one listed slot, and all {len(problem.conflicts)} conflict pairs occupy different slots. The assignment was independently verified. This satisfies the feasibility objective; it does not prove the fewest slots.",
                         values=tuple((f"x[{index}]", slot_ids[result.assignments[task]])
                                      for index, task in enumerate(problem.tasks, 1)),
-                        schedule=tuple(result.assignments.items()), objective_value=0)
+                        schedule=tuple(result.assignments.items()), objective_value=0, schedule_trace=result)
 
     graph = model.problem
     traversal = traverse(graph, model.source, "BFS")
     if model.target not in traversal.order:
-        return Solution("infeasible", "BFS exhausted the source's connected component without reaching the destination. No route satisfies the flow constraints.")
+        return Solution("infeasible", "BFS exhausted the source's connected component without reaching the destination. No route satisfies the flow constraints.", traversal=traversal)
     parents = {child: parent for parent, child in traversal.steps[-1].tree_edges}
     path = [model.target]
     while path[-1] != model.source:
@@ -164,4 +166,4 @@ def solve_model(model: Model) -> Solution:
             raise RuntimeError("The route failed flow conservation verification.")
     return Solution("solved", "BFS explores nodes in increasing hop distance. This route follows its discovery tree to the destination, so no route with fewer connections exists. Every selected arc is an existing connection, and all node flow balances were verified.",
                     values=tuple((_arc_symbol(a, b, ids), int((a, b) in chosen)) for a, b in arcs),
-                    route=tuple(path), objective_value=len(path) - 1)
+                    route=tuple(path), objective_value=len(path) - 1, traversal=traversal)

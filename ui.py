@@ -8,12 +8,16 @@ import streamlit.components.v1 as components
 from workbench import render_workbench_content
 from graph_explorer import render_graph_explorer_content
 from problem_studio import render_problem_studio_content
+from workflow import close_inspector
 
 
 ASSETS = Path(__file__).parent / "assets"
 
 
 def navigate(page: str) -> None:
+    handoff = st.session_state.get("studio_handoff")
+    if handoff and page != handoff["page"]:
+        close_inspector(st.session_state)
     st.session_state.page = page
 
 
@@ -55,6 +59,7 @@ def render_visualizations() -> None:
 def render_workbench() -> None:
     masthead("WORKBENCH", "FROM CONSTRAINTS TO A SCHEDULE")
     with st.container(key="workbench_page"):
+        render_workflow_context("workbench")
         render_workbench_content()
         footer()
 
@@ -62,6 +67,7 @@ def render_workbench() -> None:
 def render_graph_explorer() -> None:
     masthead("GRAPH EXPLORER", "FOLLOW THE CONNECTIONS, STEP BY STEP")
     with st.container(key="graph_page"):
+        render_workflow_context("graphs")
         render_graph_explorer_content()
         footer()
 
@@ -73,6 +79,16 @@ def render_problem_studio() -> None:
         footer()
 
 
+def render_workflow_context(page: str) -> None:
+    handoff = st.session_state.get("studio_handoff")
+    if not handoff or handoff["page"] != page:
+        return
+    st.button("← Return to Problem Studio", key="workflow_return", on_click=navigate, args=("studio",))
+    st.caption("Inspecting your Studio problem. Input edits return to Studio when you leave this view and require a rebuilt model. Your earlier independent draft is preserved.")
+    if page == "graphs":
+        st.caption("This viewer shows the search, not the final route. BFS supports minimum-hop routing; DFS is exploratory. The route and its destination remain in Studio.")
+
+
 def render_about() -> None:
     masthead("ABOUT", "THE THINKING BEHIND THE SPACE")
     with st.container(key="product_page"):
@@ -81,11 +97,11 @@ def render_about() -> None:
             <div class="about-statement"><span class="eyebrow">01 / THE INTENTION</span>
             <p>Complex problems become approachable when you can see their parts—and the relationships between them.</p></div>
             <div class="about-columns"><h2>A workspace<br>for deliberate<br><em>thinking.</em></h2>
-            <div><p>DiscreteOps brings discrete mathematics and optimization into a visual, exploratory workspace.
-            It begins with curiosity, gives ideas a shape, and makes room for a more precise question.</p>
+            <div><p>DiscreteOps connects real-world problems to mathematical models, supported solvers,
+            visual inspection, and explainable results. Begin in Problem Studio; the Workbench and Graph Explorer help you inspect the same problem.</p>
             <p>The visual studies are authored illustrations; they do not compute solutions.
             The Constraint Workbench uses backtracking to generate and verify real schedules.</p></div></div>''')
-        st.button("Return to Explore ↗", key="about_explore", on_click=navigate, args=("explore",))
+        st.button("Start in Problem Studio ↗", key="about_studio", on_click=navigate, args=("studio",))
         footer()
 
 
@@ -94,10 +110,10 @@ def footer() -> None:
 
 
 PAGES = {
+    "studio": ("Problem Studio", render_problem_studio),
     "explore": ("Explore", render_home),
     "workbench": ("Workbench", render_workbench),
     "graphs": ("Graph Explorer", render_graph_explorer),
-    "studio": ("Problem Studio", render_problem_studio),
     "visualizations": ("Visualizations", render_visualizations),
     "about": ("About", render_about),
 }

@@ -8,6 +8,7 @@ import streamlit as st
 from graph_algorithms import MAX_NODES
 from problem_models import Model, Solution, routing_model, scheduling_model, solve_model
 from solver import MAX_SLOTS, MAX_TASKS
+from workflow import SYLLABUS_AREAS, method_notes, open_inspector
 
 
 GOALS = {"feasible": "Find a valid schedule", "fewest_slots": "Minimize used slots · model only"}
@@ -153,6 +154,13 @@ def _render_model(model: Model) -> None:
         for assumption in model.assumptions:
             st.write(assumption)
 
+    with st.expander("Methods behind this workflow"):
+        notes = method_notes(model)
+        for area, explanation in notes.items():
+            st.markdown(f"**{area}** — {explanation}")
+        unused = "; ".join(area for area in SYLLABUS_AREAS if area not in notes)
+        st.caption(f"Not applied in this workflow: {unused}. These are underlying methods, not separate product modules; this does not imply full syllabus coverage.")
+
     variables, constraints, objective = st.tabs(["Variables", "Constraints", "Objective"])
     with variables:
         st.caption("These are the decisions the solver would make. Their domains define the allowed values.")
@@ -197,14 +205,19 @@ def _render_solution(solution: Solution) -> None:
                      hide_index=True, width="stretch")
 
 
+def _inspect(model: Model, solution: Solution | None) -> None:
+    open_inspector(st.session_state, model, solution)
+
+
 def render_problem_studio_content() -> None:
     data = _state()
     for field in ("kind", "tasks", "slots", "conflicts", "goal", "nodes", "edges", "source", "target"):
         if f"_ps_{field}" not in st.session_state:
             st.session_state[f"_ps_{field}"] = data[field]
-    st.html('<section class="ps-intro"><p class="eyebrow">PROBLEM STUDIO / 03</p>'
+    st.html('<section class="ps-intro"><p class="eyebrow">PROBLEM STUDIO / START HERE</p>'
             '<h1>Give the problem<br><em>a precise shape.</em></h1>'
-            '<p>Start with what you know. See the variables, constraints, and objective that turn your inputs into a mathematical model.</p></section>')
+            '<p>Start with a real-world scheduling or routing problem. Build its model, solve what is supported, and inspect the reasoning behind the result.</p></section>')
+    st.caption("Your workflow: problem → mathematical model → solver → visual inspection → explanation")
     kind, sample = st.columns([2, 1], vertical_alignment="bottom")
     with kind:
         st.radio("Choose a problem", ["Task scheduling", "Network routing"], key="_ps_kind",
@@ -228,5 +241,8 @@ def render_problem_studio_content() -> None:
                 data["solution"] = solve_model(model)
         if data["solution"] is not None:
             _render_solution(data["solution"])
+        label = "Inspect in Workbench ↗" if model.kind == "scheduling" else "Visualize in Graph Explorer ↗"
+        st.button(label, key="ps_inspect", on_click=_inspect, args=(model, data["solution"]), disabled=not model.supported)
+        st.caption("Continue with these inputs and the same recorded solver run, when available. Your existing inspection-page draft is kept; edits made there return to this Studio problem.")
     elif not data["dirty"]:
         st.html('<div class="ps-empty">A model you can read.<br><span>Build your model to inspect every decision and rule before solving.</span></div>')
