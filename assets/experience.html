@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DiscreteOps — An exploration of possibility</title>
+<style>
+:root{--paper:#f5f3ec;--ink:#262b23;--muted:#757d6c;--line:#d8ddcc}
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden}body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;transition:background .65s,color .65s}
+body.connected{--paper:#252b24;--ink:#f1f2e8;--muted:#aab69e;--line:#515d48}body.constrained{--paper:#e8edde;--ink:#273225;--muted:#69775f;--line:#bdc8b2}
+button,a,input{font:inherit}button,a{touch-action:manipulation}button:focus-visible,a:focus-visible,input:focus-visible,#story:focus-visible{outline:2px solid #859664;outline-offset:5px}button{cursor:pointer}button,a{-webkit-tap-highlight-color:transparent}
+#network{position:fixed;inset:0;width:100%;height:100%;pointer-events:none}#story{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;scroll-behavior:smooth;scrollbar-width:thin;scrollbar-color:#939e83 transparent;outline-offset:-3px;overscroll-behavior-y:contain}
+.chapter{min-height:100%;position:relative;display:flex;align-items:center;padding:50px 5.6% 106px;isolation:isolate}.copy{width:51%;position:relative;z-index:1;transition:opacity .15s;will-change:opacity,transform}.eyebrow,.micro,.transport,.phase-number,.canvas-caption,.lab-controls{font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace}
+.eyebrow{font-size:9px;letter-spacing:1.7px;color:var(--muted);margin:0 0 34px}.eyebrow::before{content:"";display:inline-block;width:5px;height:5px;background:#8a9b6a;border-radius:50%;margin-right:9px;vertical-align:2px}
+h1{font-size:clamp(76px,10.1vw,148px);font-weight:500;line-height:.88;letter-spacing:-.075em;margin:0 0 33px}h1 em,h2 em{font-family:"Iowan Old Style",Baskerville,Georgia,serif;font-weight:400;letter-spacing:-.06em}h1 em{white-space:nowrap}h2{font-size:clamp(48px,7vw,96px);font-weight:500;line-height:.98;letter-spacing:-.065em;margin:26px 0}.intro{font-size:14px;line-height:1.9;color:var(--muted);max-width:290px;margin:0 0 30px}.follow{display:inline-flex;gap:30px;align-items:center;color:var(--ink);text-decoration:none;font-size:12px;border-bottom:1px solid var(--muted);padding:0 0 10px}.follow span{font-size:20px;transition:transform .2s}.follow:hover span{transform:translateY(4px)}
+.phase-number{font-size:11px;letter-spacing:2px;color:var(--muted)}.statement{font-size:17px;line-height:1.7;max-width:320px;color:var(--muted);margin:28px 0 0}.annotation{font-size:10px;line-height:1.8;color:var(--muted);max-width:260px;margin-top:27px;border-left:1px solid var(--muted);padding-left:15px}.word-outline{position:absolute;left:4%;bottom:110px;font-size:clamp(78px,16vw,220px);letter-spacing:-.07em;font-weight:600;color:transparent;-webkit-text-stroke:1px var(--line);z-index:-1;opacity:.45;pointer-events:none}.chapter:nth-child(2) .copy{align-self:flex-start;margin-top:8vh}.chapter:nth-child(3) .copy{align-self:center}
+.canvas-caption{position:fixed;right:5%;top:34px;font-size:8px;letter-spacing:1.1px;color:var(--muted);text-align:right;pointer-events:none;line-height:1.8}.canvas-caption span{display:block;letter-spacing:.3px;font-size:8px;opacity:.8}.transport{position:fixed;bottom:0;left:0;right:0;z-index:5;background:var(--paper);transition:background .65s;border-top:1px solid var(--line);padding:15px 5.6% 18px}.transport-row{display:flex;justify-content:space-between;align-items:center;gap:12px}.chapters{display:flex;gap:24px}.chapters button{padding:8px 0;border:0;background:none;font-size:9px;color:var(--muted);letter-spacing:.3px}.chapters button[aria-current="step"]{color:var(--ink)}.chapters button b{font-weight:400;margin-right:7px;opacity:.65}.motion-controls{display:flex;gap:12px}.motion-controls button{border:0;background:none;color:var(--muted);font-size:9px;padding:8px 0}.motion-controls button:hover{color:var(--ink)}.progress{height:1px;background:var(--line);margin-top:13px}.progress span{height:100%;display:block;background:#8b9c6f;transform:scaleX(0);transform-origin:left}.transport .micro{font-size:7px;color:var(--muted);letter-spacing:.35px;margin:10px 0 0}.lab-controls{display:none}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+body.lab .chapter{display:none}body.lab .chapter:first-child{display:flex;min-height:100%;align-items:flex-start;padding-top:8vh}body.lab h1{font-size:clamp(60px,7vw,100px)}body.lab .intro{max-width:240px}body.lab .follow{display:none}body.lab .lab-controls{display:block;margin-top:35px;max-width:280px}body.lab .lab-controls label{display:block;font-size:9px;letter-spacing:.7px;margin-bottom:15px;color:var(--muted)}input[type=range]{width:100%;accent-color:#7e915d;cursor:ew-resize}.range-labels{display:flex;justify-content:space-between;font-size:8px;color:var(--muted);margin-top:6px}
+@media(min-width:1300px){.copy{width:49%}.intro{font-size:16px;max-width:350px}}
+@media(max-width:700px){.chapter{padding:38px 7% 102px;align-items:flex-start;min-height:100%}.copy{width:100%;max-width:430px}.eyebrow{font-size:8px;margin-bottom:23px;letter-spacing:1px}h1{font-size:clamp(65px,14.5vw,97px);margin-bottom:19px}h2{font-size:clamp(45px,10vw,70px);margin:20px 0}.intro{font-size:12px;line-height:1.7;max-width:300px;margin-bottom:16px}.follow{font-size:11px;gap:24px;padding-bottom:7px}.canvas-caption{top:auto;bottom:84px;right:7%;font-size:7px}.canvas-caption span{font-size:7px}.chapter:nth-child(2) .copy{margin-top:0}.chapter:nth-child(3) .copy{align-self:flex-start}.statement{font-size:13px;line-height:1.7;max-width:310px;margin:18px 0}.annotation{font-size:9px;margin-top:15px;max-width:290px}.word-outline{bottom:140px;font-size:21vw}.transport{padding:10px 7% 13px}.chapters{gap:15px}.chapters button,.motion-controls button{font-size:8px}.chapters button b{display:none}.motion-controls{gap:11px}.transport .micro{font-size:6.5px;letter-spacing:0}.progress{margin-top:9px}body.lab .chapter:first-child{padding-top:35px}body.lab h1{font-size:60px}body.lab .lab-controls{margin-top:16px}body.lab .intro{font-size:12px;max-width:300px}}
+@media(max-height:650px) and (min-width:701px){.chapter{padding-top:30px;padding-bottom:100px}h1{font-size:90px}.eyebrow{margin-bottom:23px}.intro{font-size:12px;margin-bottom:15px}h2{font-size:64px}}
+@media(prefers-reduced-motion:reduce){html,body,#story,.copy,.transport,.follow span{scroll-behavior:auto;transition:none!important}}
+</style>
+</head>
+<body>
+<canvas id="network" role="img" aria-label="An illustrative network that develops from separate points into connected relationships, then into a constrained space with a highlighted possible choice.">A visual study of points, relationships, and constraints.</canvas>
+<main id="story" tabindex="0" aria-label="Scroll to explore the visual story">
+  <section class="chapter" id="observe" aria-labelledby="hero-title"><div class="copy">
+    <p class="eyebrow">A DIFFERENT WAY TO THINK</p>
+    <h1 id="hero-title">Ideas<br>take <em>shape.</em></h1>
+    <p class="intro">A workspace for thinking in possibilities.<br>See the connections. Shape the constraints.<br>Find a clearer way forward.</p>
+    <a href="#connect" class="follow">Follow the connections <span>↓</span></a>
+    <div class="lab-controls"><label for="scrub">MOVE THROUGH THE VISUAL STUDY</label><input id="scrub" type="range" min="0" max="100" value="0" aria-label="Visual transformation progress"><div class="range-labels"><span>POINTS</span><span>CONSTRAINTS</span></div></div>
+  </div></section>
+  <section class="chapter" id="connect" aria-labelledby="connect-title"><div class="copy">
+    <span class="phase-number">02 / RELATIONSHIPS</span><h2>Nothing exists<br><em>in isolation.</em></h2>
+    <p class="statement">Move beyond the individual parts.<br>The connections are where a system<br>begins to reveal itself.</p>
+    <p class="annotation">A shift in perspective.<br>The same elements. An entirely different picture.</p>
+  </div><span class="word-outline" aria-hidden="true">connected.</span></section>
+  <section class="chapter" id="constrain" aria-labelledby="constrain-title"><div class="copy">
+    <span class="phase-number">03 / POSSIBILITIES, REFINED</span><h2>A little structure.<br><em>A clearer path.</em></h2>
+    <p class="statement">Give the possibilities a boundary.<br>See what remains. Make the next<br>question a more deliberate one.</p>
+    <p class="annotation">An illustration of constraint solving.<br>The highlighted choice is authored, not computed.</p>
+    <a href="#observe" class="follow" style="margin-top:25px">Look again <span>↗</span></a>
+  </div></section>
+</main>
+<div class="canvas-caption" aria-hidden="true">STUDY 001 / A FIELD OF POSSIBILITIES<span id="drawing-label">Move your cursor. Notice the response.</span></div>
+<nav class="transport" aria-label="Visual story controls">
+  <div class="transport-row"><div class="chapters"><button data-step="0" aria-current="step"><b>01</b> Observe</button><button data-step="1"><b>02</b> Connect</button><button data-step="2"><b>03</b> Constrain</button></div>
+  <div class="motion-controls"><button id="pause" aria-pressed="false">Pause motion</button><button id="replay">↺ Replay</button></div></div>
+  <div class="progress" aria-hidden="true"><span id="progress-fill"></span></div>
+  <p class="micro">ILLUSTRATIVE STUDY · NO COMPUTATION &nbsp; / &nbsp; <span id="hint">SCROLL TO TRANSFORM</span></p>
+</nav>
+<p class="sr-only" id="phase-status" aria-live="polite">Observe: individual possibilities emerge.</p>
+<noscript><p style="position:fixed;bottom:120px;padding:20px;background:#f5f3ec">Enable JavaScript to animate this illustrative network. The story remains readable by scrolling.</p></noscript>
+<script>
+(() => {
+  'use strict';
+  const lab = '__EXPERIENCE_MODE__' === 'visualizations';
+  const canvas = document.getElementById('network'), ctx = canvas.getContext('2d');
+  const story = document.getElementById('story'), sections = [...document.querySelectorAll('.chapter')];
+  const buttons = [...document.querySelectorAll('[data-step]')], pause = document.getElementById('pause');
+  const scrub = document.getElementById('scrub'), fill = document.getElementById('progress-fill');
+  const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const clamp = (v, lo=0, hi=1) => Math.max(lo, Math.min(hi, v));
+  const mix = (a,b,t) => a + (b-a)*t;
+  const ease = t => {t=clamp(t); return t*t*(3-2*t);};
+  let w=1,h=1,progress=0,phase=-1,paused=motion.matches,raf=0,tick=0,last=0;
+  let pointer={x:-10000,y:-10000}, mounted=true;
+  // Authored drawing positions and relationships: this is animation, not a solver.
+  const points=Array.from({length:36},(_,i)=>{
+    const a=i*2.39996323, z=1-2*(i+.5)/36, r=Math.sqrt(1-z*z);
+    return {x:Math.cos(a)*r,y:z,z:Math.sin(a)*r,
+      tx:((i*13)%37)/36,ty:((i*19+4)%41)/40};
+  });
+  points[17].tx=.63;points[17].ty=.38;
+  const links=[];
+  for(let i=0;i<36;i++) {links.push([i,(i+5)%36]); if(i%2===0)links.push([i,(i+11)%36]);}
+  const retained=new Set([3,5,8,12,17,19,22,27,31]);
+  const polygon=[[.18,.75],[.3,.35],[.63,.22],[.84,.46],[.67,.78]];
+  const interior=[[.37,.42],[.42,.6],[.56,.33],[.73,.48],[.63,.38],[.62,.63],[.36,.67],[.48,.72],[.72,.62]];
+  [...retained].forEach((index,i)=>{points[index].tx=interior[i][0];points[index].ty=interior[i][1];});
+  if(lab){document.body.classList.add('lab');document.getElementById('hero-title').innerHTML='A change<br>of <em>view.</em>';document.querySelector('.eyebrow').textContent='THE VISUAL LAB';document.querySelector('.intro').textContent='Move the slider. Watch the same elements become a different kind of space.';document.getElementById('hint').textContent='DRAG THE SLIDER TO TRANSFORM';}
+
+  function updatePhase(){
+    const next=progress<.3?0:progress<.72?1:2;
+    if(next!==phase){phase=next;document.body.classList.toggle('connected',phase===1);document.body.classList.toggle('constrained',phase===2);
+      buttons.forEach((b,i)=>i===phase?b.setAttribute('aria-current','step'):b.removeAttribute('aria-current'));
+      document.getElementById('phase-status').textContent=['Observe: individual possibilities emerge.','Connect: relationships form a network.','Constrain: boundaries reveal an illustrative space of choices.'][phase];
+      document.getElementById('drawing-label').textContent=['Move your cursor. Notice the response.','Relationships make the structure visible.','A possible choice, within the boundaries.'][phase];}
+    fill.style.transform='scaleX('+progress+')';
+  }
+  function onScroll(){if(!lab){progress=clamp(story.scrollTop/Math.max(1,story.scrollHeight-story.clientHeight));updatePhase();render();}}
+  function go(index){if(lab){progress=index/2;scrub.value=String(progress*100);updatePhase();render();}else{story.scrollTo({top:sections[index].offsetTop,behavior:motion.matches?'instant':'smooth'});}}
+  buttons.forEach(b=>b.addEventListener('click',()=>go(Number(b.dataset.step))));
+  document.querySelectorAll('.follow').forEach(a=>a.addEventListener('click',event=>{event.preventDefault();go(a.hash==='#connect'?1:0);}));
+  document.getElementById('replay').addEventListener('click',()=>go(0));
+  scrub.addEventListener('input',()=>{progress=Number(scrub.value)/100;updatePhase();render();});
+  function setPause(value){paused=value;pause.textContent=paused?'Resume motion':'Pause motion';pause.setAttribute('aria-pressed',String(paused));last=0;render();}
+  pause.addEventListener('click',()=>setPause(!paused));
+  motion.addEventListener('change',()=>setPause(motion.matches));
+  story.addEventListener('scroll',onScroll,{passive:true});
+  window.addEventListener('pointermove',e=>{if(e.pointerType!=='touch'&&!paused){pointer={x:e.clientX,y:e.clientY};render();}},{passive:true});
+  document.addEventListener('pointerleave',()=>{pointer={x:-10000,y:-10000};render();});
+  document.addEventListener('visibilitychange',()=>{last=0;render();});
+
+  function resize(){w=window.innerWidth;h=window.innerHeight;const dpr=Math.min(window.devicePixelRatio||1,2);canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);onScroll();render();}
+  new ResizeObserver(resize).observe(document.documentElement);
+  function render(){if(!mounted||raf||document.hidden)return;raf=requestAnimationFrame(draw);}
+  function draw(now){
+    raf=0;if(!mounted||document.hidden)return;
+    if(!paused){tick+=Math.min(40,last?now-last:0)/1000;}last=now;
+    ctx.clearRect(0,0,w,h);
+    const mobile=w<=700, dark=phase===1, morph=ease((progress-.52)/.43);
+    const cx=mobile?w*.52:w*.76, cy=mobile?h*.69:h*.49;
+    const size=mobile?Math.min(w*.32,h*.205):Math.min(w*.22,h*.34);
+    const graph=[cx-size,cy-size,size*2,size*2], ink=dark?'207,219,193':'83,101,67';
+    ctx.fillStyle='rgba('+ink+',.16)';
+    for(let x=cx-size*1.12;x<=cx+size*1.12;x+=23)for(let y=cy-size*1.12;y<=cy+size*1.12;y+=23){ctx.beginPath();ctx.arc(x,y,.65,0,Math.PI*2);ctx.fill();}
+    const project=(x,y)=>[graph[0]+x*graph[2],graph[1]+y*graph[3]];
+    const rotation=tick*.055;
+    const nodes=points.map((p,i)=>{
+      const rx=p.x*Math.cos(rotation)+p.z*Math.sin(rotation), rz=-p.x*Math.sin(rotation)+p.z*Math.cos(rotation);
+      const scale=1/(1-rz*.17), target=project(p.tx,p.ty);
+      let x=mix(cx+rx*size*scale,target[0],morph),y=mix(cy+p.y*size*.94*scale,target[1],morph);
+      if(!paused){const dx=x-pointer.x,dy=y-pointer.y,d=Math.hypot(dx,dy);if(d<120&&d>0){const force=(1-d/120)*10*(1-morph);x+=dx/d*force;y+=dy/d*force;}}
+      const alpha=clamp((.38+progress*1.8-((i*13)%36)/48)*4)*mix(.7+rz*.2,retained.has(i)?1:.18,morph);
+      return{x,y,alpha,r:mix(2.5+(rz+1)*.9,i===17?5:2.7,morph)};
+    });
+    // Lines grow from their first endpoint; their order is fixed, not computed.
+    const connect=ease(.3+progress/.47);
+    links.forEach(([a,b],i)=>{const t=clamp((connect-i/links.length*.64)*2.8);if(!t)return;const A=nodes[a],B=nodes[b];ctx.strokeStyle='rgba('+ink+','+(.31*t*Math.min(A.alpha,B.alpha)*(1-morph*.9))+')';ctx.lineWidth=.75;ctx.beginPath();ctx.moveTo(A.x,A.y);ctx.lineTo(mix(A.x,B.x,t),mix(A.y,B.y,t));ctx.stroke();});
+    if(morph>.01){
+      ctx.save();ctx.globalAlpha=morph;ctx.strokeStyle='rgba('+ink+',.28)';ctx.lineWidth=1;
+      const constraints=polygon.map((a,i)=>{const b=polygon[(i+1)%polygon.length];return [[mix(a[0],b[0],-.35),mix(a[1],b[1],-.35)],[mix(a[0],b[0],1.35),mix(a[1],b[1],1.35)]];});
+      constraints.forEach(line=>{ctx.beginPath();ctx.moveTo(...project(...line[0]));ctx.lineTo(...project(...line[1]));ctx.stroke();});
+      ctx.beginPath();polygon.forEach((p,i)=>{const xy=project(...p);i?ctx.lineTo(...xy):ctx.moveTo(...xy);});ctx.closePath();ctx.fillStyle='rgba(143,163,105,.17)';ctx.fill();ctx.strokeStyle='rgba('+ink+',.65)';ctx.stroke();
+      ctx.font='8px monospace';ctx.fillStyle='rgba('+ink+',.7)';ctx.fillText('FEASIBLE SPACE',...project(.24,.91));
+      const selected=nodes[17];ctx.setLineDash([3,5]);ctx.beginPath();ctx.moveTo(selected.x,selected.y);ctx.lineTo(selected.x,cy+size*.95);ctx.stroke();ctx.setLineDash([]);ctx.beginPath();ctx.arc(selected.x,selected.y,13,0,Math.PI*2);ctx.stroke();ctx.fillText('A POSSIBLE CHOICE',selected.x-35,selected.y-23);ctx.restore();
+    }
+    nodes.forEach((n,i)=>{if(n.alpha<=0)return;ctx.beginPath();ctx.arc(n.x,n.y,n.r,0,Math.PI*2);ctx.fillStyle='rgba('+ink+','+n.alpha+')';ctx.fill();if(i%7===0&&morph<.8){ctx.font='8px monospace';ctx.fillStyle='rgba('+ink+','+(n.alpha*.6)+')';ctx.fillText(String(i+1).padStart(2,'0'),n.x+9,n.y-8);}});
+    if(!lab)sections.forEach(section=>{const distance=Math.abs(section.offsetTop-story.scrollTop)/Math.max(1,h);const copy=section.querySelector('.copy');copy.style.opacity=String(motion.matches?1:clamp(1-distance*.65,.3,1));copy.style.transform=motion.matches?'none':'translateY('+Math.min(24,distance*18)+'px)';});
+    if(!paused)render();
+  }
+  window.addEventListener('pagehide',()=>{mounted=false;cancelAnimationFrame(raf);});
+  setPause(paused);updatePhase();resize();
+})();
+</script>
+</body>
+</html>

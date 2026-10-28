@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 455" role="img" aria-labelledby="structure-title structure-desc">
+  <title id="structure-title">Connected points, considered as a whole</title>
+  <desc id="structure-desc">An abstract geometric network with eight vertices, fine intersecting edges, and an orbit that slowly turns.</desc>
+  <g fill="none" stroke="#d6d8cb" stroke-width=".8">
+    <path d="M220 14V426M14 220H426" stroke-dasharray="2 6"/>
+    <circle cx="220" cy="220" r="184"/>
+    <circle cx="220" cy="220" r="143" stroke-dasharray="2 5"/>
+    <g class="orbit"><ellipse cx="220" cy="220" rx="209" ry="103" transform="rotate(-37 220 220)"/><circle cx="389" cy="95" r="4" fill="#b2ba93" stroke="none"/></g>
+  </g>
+  <path d="M220 54L337 103L386 220L337 337L220 386L103 337L54 220L103 103Z" fill="#e6e9d9" fill-opacity=".58" stroke="#777e65" stroke-width="1"/>
+  <g fill="none" stroke="#828a71" stroke-width=".8" opacity=".65">
+    <path d="M220 54L386 220L220 386L54 220Z"/>
+    <path d="M103 103L337 103L337 337L103 337Z"/>
+    <path d="M220 54L337 337L54 220L337 103L220 386L103 103L386 220L103 337Z"/>
+    <path d="M220 54V386M54 220H386M103 103L337 337M337 103L103 337"/>
+  </g>
+  <g stroke="#f5f3ec" stroke-width="3" fill="#343c2c">
+    <circle cx="220" cy="54" r="6"/><circle cx="337" cy="103" r="6"/>
+    <circle cx="386" cy="220" r="6"/><circle cx="337" cy="337" r="6"/>
+    <circle cx="220" cy="386" r="6"/><circle cx="103" cy="337" r="6"/>
+    <circle cx="54" cy="220" r="6"/><circle cx="103" cy="103" r="6"/>
+  </g>
+  <circle cx="220" cy="220" r="12" fill="#f5f3ec"/><circle cx="220" cy="220" r="4" fill="#68744a"/>
+  <g font-family="monospace" font-size="9" fill="#767e67" text-anchor="middle">
+    <text x="220" y="37">v₁</text><text x="354" y="90">v₂</text>
+    <text x="407" y="223">v₃</text><text x="355" y="355">v₄</text>
+    <text x="220" y="408">v₅</text><text x="86" y="355">v₆</text>
+    <text x="32" y="223">v₇</text><text x="86" y="90">v₈</text>
+  </g>
+</svg>

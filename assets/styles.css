@@ -1,0 +1,47 @@
+:root { --paper:#f5f3ec; --ink:#262722; --muted:#717469; --line:#dadcd1; }
+.stApp { background:var(--paper); color:var(--ink); }
+.stApp, button { font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif; }
+[data-testid="stHeader"] { background:var(--paper); }
+[data-testid="stMainBlockContainer"] { max-width:none; padding:3.75rem 0 0; }
+[data-testid="stVerticalBlock"] { gap:0; }
+[data-testid="stSidebar"], [data-testid="stSidebarContent"] { background:#252720; }
+[data-testid="stSidebarUserContent"] { padding:1.75rem 1.5rem 1.4rem; }
+/* Native sidebar sizing and collapse controls remain intact on mobile. */
+.brand { font-size:26px; font-weight:600; letter-spacing:-1.3px; color:#f5f3ec; white-space:nowrap; }
+.brand > span { margin-right:5px; font-size:30px; font-weight:400; vertical-align:-2px; }
+.brand-subtitle { font-size:8px; letter-spacing:1.7px; line-height:1.8; color:#a9ae9d; margin:12px 0 56px; }
+.st-key-navigation .stButton { margin-bottom:9px; }
+.st-key-navigation button { color:#c5c9ba; border:0; border-radius:2px; background:transparent; padding:15px 14px; justify-content:flex-start; transition:background 180ms ease,color 180ms ease; }
+.st-key-navigation button p { font-size:14px; font-weight:400; }
+.st-key-navigation button:hover { color:#fff; background:#373b30; }
+.st-key-navigation button[kind="primary"] { background:#e4e9d5; color:#24271f; }
+.st-key-navigation button[kind="primary"]::after { content:"↗"; margin-left:auto; }
+.sidebar-note { margin:clamp(60px,18vh,200px) 10px 0; color:#d7dbcc; }
+.eyebrow, .masthead, .edition, .site-footer { font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace; }
+.eyebrow { font-size:9px; letter-spacing:1.4px; color:var(--muted); }
+.sidebar-note .eyebrow { color:#a9ae9d; font-size:8px; }
+.sidebar-note p { margin:18px 0 35px; font-family:Georgia,serif; font-size:25px; line-height:1.3; }
+.edition { display:flex; gap:8px; align-items:center; border-top:1px solid #454a3b; padding-top:20px; font-size:8px; color:#aeb59f; }
+.edition > span:last-child { margin-left:auto; }
+.status-dot { width:5px; height:5px; border-radius:50%; background:#c2ce9f; }
+.masthead { height:52px; padding:0 32px; display:flex; gap:16px; align-items:center; justify-content:space-between; border-bottom:1px solid var(--line); font-size:8px; letter-spacing:1.1px; color:#707567; }
+.st-key-experience iframe { display:block; width:100%; height:calc(100dvh - 112px); min-height:540px; border:0; }
+.st-key-experience [data-testid="stElementContainer"] { height:calc(100dvh - 112px)!important; min-height:540px; }
+.st-key-product_page { max-width:1180px; padding:clamp(32px,5vw,80px); margin:auto; }
+.product-intro h1 { font-weight:500; font-size:clamp(44px,6.6vw,94px); letter-spacing:-.06em; line-height:1.03; margin:30px 0; padding:0; }
+h1 em, h2 em { font-family:Georgia,serif; font-weight:400; }
+.lede { font-size:16px; line-height:1.8; color:#72766a; }
+.workbench-preview { background:#e9ebdf; padding:32px; margin:44px 0 24px; }
+.empty-mark { font-family:Georgia,serif; font-size:70px; padding:28px 0; color:#939d7c; }
+.workbench-preview h2 { font-size:27px; font-weight:400; letter-spacing:-1px; }
+.workbench-preview p { font-size:14px; color:#636c57; line-height:1.8; }
+.st-key-product_page button { background:transparent; border:0; border-radius:0; border-bottom:1px solid #707963; padding:12px 0; color:#333b2a; }
+.about-statement { margin:60px 0; padding:32px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+.about-statement p { max-width:780px; font-size:clamp(25px,3vw,44px); line-height:1.3; letter-spacing:-1.2px; margin:24px 0 0; }
+.about-columns { display:grid; grid-template-columns:1fr 1.2fr; gap:50px; margin-bottom:40px; }
+.about-columns h2 { font-weight:500; letter-spacing:-1px; font-size:35px; }
+.about-columns p { color:#73786a; font-size:15px; line-height:1.85; }
+.site-footer { border-top:1px solid var(--line); padding-top:22px; margin-top:70px; display:flex; justify-content:space-between; flex-wrap:wrap; gap:16px; font-size:8px; color:#73786a; }
+button:focus-visible { outline:2px solid #8c9b64!important; outline-offset:4px; }
+@media (max-width:760px) { .masthead { padding:0 22px; } .masthead > span:last-child { display:none; } .about-columns { grid-template-columns:1fr; gap:18px; } .sidebar-note { margin-top:50px; } }
+@media (prefers-reduced-motion:reduce) { * { transition:none!important; } }
