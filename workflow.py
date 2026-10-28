@@ -2,31 +2,8 @@
 
 from copy import deepcopy
 
+from explanations import SYLLABUS_AREAS, method_notes
 from problem_models import PROBLEM_TYPES, Model, Solution
-
-
-SYLLABUS_AREAS = (
-    "Logic and Proofs", "Basic Counting", "Advanced Combinatorial Techniques",
-    "Recurrence Relations and Generating Functions", "Modular Arithmetic", "Graph Theory",
-)
-
-
-def method_notes(model: Model) -> dict[str, str]:
-    notes = {
-        "Logic and Proofs": "Constraints express the rules. Supported solver results are checked against those rules before they are shown.",
-        "Basic Counting": f"The model contains {len(model.variables)} decision variables and {len(model.constraints)} explicit constraints. Variable domains define the choices.",
-    }
-    if model.kind == "scheduling":
-        if model.supported:
-            notes["Advanced Combinatorial Techniques"] = "The existing backtracking search rejects conflicting placements and revisits earlier choices. It finds feasibility, not a proven minimum."
-        notes["Graph Theory"] = "Tasks and conflict pairs form a conflict graph. Assigning different slots to adjacent tasks is a graph-colouring formulation."
-    elif model.kind == "routing":
-        notes["Graph Theory"] = ("Connections form a weighted, undirected graph. Dijkstra settles locations in increasing total cost; its predecessor tree supplies a minimum-cost route."
-                                 if model.problem.weights is not None else
-                                 "Connections form an undirected graph. BFS explores distance layers; its discovery tree supplies a minimum-hop route.")
-    elif model.kind == "allocation":
-        notes["Advanced Combinatorial Techniques"] = "Exact search assigns whole tasks to eligible resources and prunes capacity violations. Cost optimization adds admissible lower bounds and compares prefix costs at repeated capacity states; only a completed proof establishes minimum cost."
-    return notes
 
 
 def _clear_widgets(state, prefix: str) -> None:

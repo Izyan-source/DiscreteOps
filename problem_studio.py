@@ -6,6 +6,7 @@ from itertools import combinations
 
 import streamlit as st
 
+from explanations import explain_model, render_explanation
 from allocation_solver import MAX_COST, MAX_RESOURCES, MAX_TASKS as MAX_ALLOCATION_TASKS, MAX_UNITS, validate_names
 from graph_algorithms import MAX_NODES
 from graph_explorer import graph_markup, render_edge_costs
@@ -256,6 +257,8 @@ def _render_model(model: Model) -> None:
         st.markdown(f"**{model.objective}**")
         st.html(f'<div class="ps-equation">{escape(model.objective_expression)}</div>')
         st.write(model.objective_explanation)
+    if not model.supported:
+        render_explanation(explain_model(model))
 
 
 def _render_solution(solution: Solution, model: Model) -> None:
@@ -267,6 +270,7 @@ def _render_solution(solution: Solution, model: Model) -> None:
             st.write(issue)
         if model.kind == "routing":
             st.image(graph_markup(model.problem), width="stretch")
+        render_explanation(explain_model(model, solution))
         return
     if solution.optimal is False:
         st.warning("Feasible allocation · optimality not proven (search limit)")
@@ -298,6 +302,7 @@ def _render_solution(solution: Solution, model: Model) -> None:
         st.markdown(f"**{table.title}**")
         st.dataframe([dict(zip(table.columns, row)) for row in table.rows], hide_index=True, width="stretch")
     st.write(solution.explanation)
+    render_explanation(explain_model(model, solution))
     with st.expander("Inspect the solved variable values"):
         st.dataframe([{"Variable": variable, "Value": value} for variable, value in solution.values],
                      hide_index=True, width="stretch")

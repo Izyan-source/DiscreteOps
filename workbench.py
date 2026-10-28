@@ -5,6 +5,7 @@ from itertools import combinations
 
 import streamlit as st
 
+from explanations import explain_schedule, render_explanation
 from solver import MAX_SLOTS, MAX_TASKS, InvalidProblem, Problem, Result, audit_schedule, make_problem, solve
 
 
@@ -189,3 +190,4 @@ def render_result(problem: Problem, result: Result) -> None:
                           for item in result.collisions], hide_index=True, width="stretch")
         else:
             st.write("No conflicting placement was encountered during this search.")
+    render_explanation(explain_schedule(problem, result))

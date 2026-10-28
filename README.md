@@ -48,11 +48,13 @@ The **Methods behind this workflow** explanation uses the syllabus as a method v
 | Syllabus area | Current role |
 | --- | --- |
 | Logic and Proofs | Constraint statements and verification of supported results |
-| Basic Counting | Decision-variable, constraint, and hop counts |
-| Advanced Combinatorial Techniques | Backtracking and pruning for scheduling and resource allocation feasibility |
+| Basic Counting | Product rule for candidate scheduling and allocation assignments before constraints |
+| Advanced Combinatorial Techniques | No unit coverage claimed; use of backtracking alone is not sufficient |
 | Recurrence Relations and Generating Functions | Not yet applied in these workflows |
 | Modular Arithmetic | Not yet applied in these workflows |
 | Graph Theory | Scheduling conflict graphs and minimum-cost routing with Dijkstra |
+
+The shared **Solution explanation** panel presents the model, constraints, algorithm, validity argument, and limitations for Studio results and the existing solver tools. It distinguishes proven optimality, feasible incumbents, infeasibility, and incomplete searches; traversal explanations follow the displayed playback step.
 
 Only relevant methods are described as applied to each model. These mappings do not claim full syllabus coverage. The separate Visualizations page remains an illustrative study, not a computed result view.
 

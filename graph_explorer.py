@@ -6,6 +6,7 @@ from math import cos, pi, sin
 
 import streamlit as st
 
+from explanations import explain_traversal, render_explanation
 from graph_algorithms import MAX_COST, MAX_NODES, Graph, Step, Traversal, make_graph, traverse
 
 
@@ -210,6 +211,7 @@ def _render_stage(graph: Graph, result: Traversal | None, index: int, method: st
         if step.action == "Complete" and result.unreachable:
             st.info("Unreachable from " + result.start + ": " + ", ".join(result.unreachable) +
                     ". Choose a starting node in another component, or add a connection and run again.")
+        render_explanation(explain_traversal(graph, result, index))
 
 
 def render_graph_explorer_content() -> None:
