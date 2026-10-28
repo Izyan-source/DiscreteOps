@@ -45,3 +45,42 @@ h1 em, h2 em { font-family:Georgia,serif; font-weight:400; }
 button:focus-visible { outline:2px solid #8c9b64!important; outline-offset:4px; }
 @media (max-width:760px) { .masthead { padding:0 22px; } .masthead > span:last-child { display:none; } .about-columns { grid-template-columns:1fr; gap:18px; } .sidebar-note { margin-top:50px; } }
 @media (prefers-reduced-motion:reduce) { * { transition:none!important; } }
+
+/* Constraint Workbench: scoped so the landing page stays unchanged. */
+.st-key-workbench_page { max-width:1120px; padding:42px clamp(24px,4vw,64px) 32px; margin:auto; }
+.st-key-workbench_page [data-testid="stVerticalBlock"] { gap:14px; }
+.wb-intro h1 { font-size:clamp(44px,5.5vw,76px); font-weight:500; line-height:1.03; letter-spacing:-.055em; margin:20px 0; padding:0; }
+.wb-intro > p:last-child { font-size:15px; color:#73786a; line-height:1.75; margin:0 0 24px; }
+.st-key-wb_examples { max-width:560px; margin-bottom:8px; }
+.st-key-workbench_page [data-testid="stWidgetLabel"] p { font-size:12px; color:#525b49; }
+.st-key-workbench_page textarea { background:#eeeee4; border-radius:2px; font-size:14px; line-height:1.8; }
+.st-key-workbench_page button { border-radius:2px; }
+.st-key-workbench_page [data-baseweb="tag"] { height:auto; max-width:100%; padding-top:5px; padding-bottom:5px; }
+.st-key-workbench_page [data-baseweb="tag"] > span[title] { max-width:none; min-width:0; white-space:normal; overflow-wrap:anywhere; }
+.wb-rule { display:grid; grid-template-columns:95px 1fr; gap:18px; border-top:1px solid var(--line); border-bottom:1px solid var(--line); padding:20px 0; margin:8px 0 14px; }
+.wb-rule > span, .wb-step > span, .wb-slot-index, .wb-result-heading > span, .wb-search-stats { font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace; }
+.wb-rule > span { font-size:9px; letter-spacing:1px; padding-top:4px; color:#737e63; }
+.wb-rule p { font-size:12px; line-height:1.8; color:#6f7765; margin:0; max-width:650px; }
+.wb-step { display:flex; align-items:baseline; gap:12px; margin:6px 0 2px; }
+.wb-step > span { font-size:10px; color:#7a8866; }
+.wb-step h2 { padding:0; margin:0; font-size:23px; font-weight:500; letter-spacing:-.7px; }
+.st-key-wb_generate { max-width:330px; margin:12px 0 4px; }
+.st-key-wb_generate button { min-height:48px; background:#293124; color:#f3f5ea; border:1px solid #293124; font-size:13px; }
+.st-key-wb_generate button:hover { background:#46513a; color:#fff; border-color:#46513a; }
+.st-key-wb_generate button:disabled { background:#d9ddce; border-color:#d9ddce; color:#7d8473; }
+.wb-empty { color:#555f49; border-top:1px solid var(--line); margin-top:20px; padding:30px 0 8px; font-size:19px; line-height:1.8; letter-spacing:-.3px; }
+.wb-empty span { font-size:12px; color:#838b79; letter-spacing:0; }
+.wb-result-divider { border-top:1px solid var(--line); padding-top:26px; margin-top:24px; }
+.wb-result-heading { display:flex; gap:14px; align-items:baseline; justify-content:space-between; flex-wrap:wrap; margin:4px 0 16px; }
+.wb-result-heading h2 { padding:0; margin:0; font-size:36px; font-weight:500; letter-spacing:-1.4px; }
+.wb-result-heading > span { color:#6a785a; font-size:8px; letter-spacing:.6px; }
+.wb-slot { display:grid; grid-template-columns:minmax(120px,1fr) 2.5fr; gap:20px; padding:20px 0; border-bottom:1px solid var(--line); align-items:center; }
+.wb-slot > div:first-child { display:flex; gap:15px; align-items:baseline; }
+.wb-slot-index { color:#859173; font-size:9px; }
+.wb-slot strong { font-size:13px; font-weight:500; overflow-wrap:anywhere; }
+.wb-slot-tasks { display:flex; gap:8px; flex-wrap:wrap; }
+.wb-task { background:#e3e9d6; color:#39492e; border-left:2px solid #93a575; padding:9px 12px; font-size:12px; overflow-wrap:anywhere; max-width:100%; }
+.wb-unused { font-size:12px; color:#8b927e; padding:9px 0; }
+.wb-search-stats { display:flex; gap:12px 24px; flex-wrap:wrap; border-top:1px solid var(--line); padding-top:18px; margin:15px 0; color:#6d795f; font-size:9px; }
+.st-key-workbench_page .site-footer { margin-top:40px; }
+@media (max-width:640px) { .wb-rule { grid-template-columns:1fr; gap:8px; } .wb-slot { grid-template-columns:1fr; gap:12px; } .wb-result-heading h2 { font-size:30px; } .st-key-workbench_page { padding-top:30px; } }

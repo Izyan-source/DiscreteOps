@@ -5,6 +5,8 @@ from pathlib import Path
 import streamlit as st
 import streamlit.components.v1 as components
 
+from workbench import render_workbench_content
+
 
 ASSETS = Path(__file__).parent / "assets"
 
@@ -49,18 +51,9 @@ def render_visualizations() -> None:
 
 
 def render_workbench() -> None:
-    masthead("WORKBENCH", "SPACE BEFORE SOLUTION")
-    with st.container(key="product_page"):
-        st.html('''<section class="product-intro"><p class="eyebrow">START WITH A QUESTION</p>
-            <h1>Make room<br>for <em>what if.</em></h1>
-            <p class="lede">The next chapter of DiscreteOps: a place to shape a problem,<br>
-            set its boundaries, and explore what could work.</p></section>
-            <div class="workbench-preview"><span class="eyebrow">WORKSPACE PREVIEW</span>
-            <div class="empty-mark" aria-hidden="true">[ &nbsp; · &nbsp; ]</div>
-            <h2>The question comes first.</h2><p>Interactive problem building is on the horizon.<br>
-            For now, explore how a field of possibilities becomes a space of choices.</p></div>''')
-        st.button("Explore the visual study ↗", key="workbench_explore",
-                  on_click=navigate, args=("visualizations",))
+    masthead("WORKBENCH", "FROM CONSTRAINTS TO A SCHEDULE")
+    with st.container(key="workbench_page"):
+        render_workbench_content()
         footer()
 
 
@@ -74,8 +67,8 @@ def render_about() -> None:
             <div class="about-columns"><h2>A workspace<br>for deliberate<br><em>thinking.</em></h2>
             <div><p>DiscreteOps brings discrete mathematics and optimization into a visual, exploratory workspace.
             It begins with curiosity, gives ideas a shape, and makes room for a more precise question.</p>
-            <p>This first chapter establishes the interface. The visual studies are authored illustrations;
-            they do not compute solutions. Python-powered tools will come later.</p></div></div>''')
+            <p>The visual studies are authored illustrations; they do not compute solutions.
+            The Constraint Workbench uses backtracking to generate and verify real schedules.</p></div></div>''')
         st.button("Return to Explore ↗", key="about_explore", on_click=navigate, args=("explore",))
         footer()
 
