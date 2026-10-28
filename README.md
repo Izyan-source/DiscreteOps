@@ -21,6 +21,7 @@ Open http://localhost:8501. On Windows, activate the environment with `.venv\Scr
 - `ui.py`: product navigation and reusable presentation functions.
 - `workbench.py`: editable scheduling inputs, examples, results, and constraint explanations.
 - `solver.py`: Streamlit-independent input validation, backtracking, and schedule verification.
+- `allocation_solver.py`: exact capacity-constrained task assignment, feasibility diagnostics, and independent allocation verification.
 - `graph_explorer.py`: graph editing, examples, SVG visualization, and interactive traversal steps.
 - `graph_algorithms.py`: Streamlit-independent graph/cost validation and recorded BFS, DFS, and Dijkstra searches.
 - `problem_studio.py`: shared problem intake, type-specific forms, and model/solution inspection.
@@ -34,7 +35,7 @@ Explore progresses from points to connections to an illustrative constrained spa
 
 ## Problem Studio
 
-Start with an optional problem description, or go directly to structured input. New sessions have no problem type preselected. Choose **Task scheduling** or **Network routing**, review its scope and available solver, enter data through the numbered form (or load an example), then **Build model**. Inspect the Variables, Constraints, and Objective tabs, along with the input-symbol mapping and assumptions. Building a model does not solve it. **Solve this model** runs only supported formulations; structured-input edits clear stale models and results.
+Start with an optional problem description, or go directly to structured input. New sessions have no problem type preselected. Choose **Task scheduling**, **Network routing**, or **Resource allocation**, review its scope and available solver, enter data through the numbered form (or load an example), then **Build model**. Inspect the Variables, Constraints, and Objective tabs, along with the input-symbol mapping and assumptions. Building a model does not solve it. **Solve this model** runs only supported formulations; structured-input edits clear stale models and results.
 
 Descriptions are saved as context only. They are not parsed, classified, or converted into constraints; every supported rule must be entered in the form. Changing the description alone does not change the mathematical model. Choose **Other / not supported yet** when the current assumptions do not fit: the description remains available, while model building and solving are unavailable. Results explicitly apply to the structured model, not every requirement mentioned in prose.
 
@@ -48,7 +49,7 @@ The **Methods behind this workflow** explanation uses the syllabus as a method v
 | --- | --- |
 | Logic and Proofs | Constraint statements and verification of supported results |
 | Basic Counting | Decision-variable, constraint, and hop counts |
-| Advanced Combinatorial Techniques | Existing backtracking and pruning for scheduling feasibility |
+| Advanced Combinatorial Techniques | Backtracking and pruning for scheduling and resource allocation feasibility |
 | Recurrence Relations and Generating Functions | Not yet applied in these workflows |
 | Modular Arithmetic | Not yet applied in these workflows |
 | Graph Theory | Scheduling conflict graphs and minimum-cost routing with Dijkstra |
@@ -59,7 +60,19 @@ Only relevant methods are described as applied to each model. These mappings do 
 - Routing accepts locations, two-way connections, a non-negative cost per connection, and distinct start/destination locations. Costs can represent distance, time, or expense but must use one consistent unit; no real-world costs are inferred. New connections default to 1. Costs must be finite and between 0 and 1 trillion. The example contrasts a direct connection costing 12 with a two-leg route costing 5.
 - The routing model creates two binary arc variables per connection and flow conservation at every location (+1 at the start, −1 at the destination). Its objective is the sum of each selected arc's cost. Dijkstra runs once in `graph_algorithms.py`; the adapter reconstructs the recorded path and verifies connections, flow balances, and total cost. Zero-cost edges are supported; equal-cost alternatives may exist, and node-list order breaks ties. The solver returns a simple route even if the flow model allows zero-cost cycles. Disconnected destinations produce a clear infeasible result with no route or cost. Negative costs, directed links, capacities, and multiple simultaneous routes remain unsupported. The original unweighted Python model API still uses BFS.
 
-Existing input limits apply (24 tasks / 12 slots or 16 nodes). Unsupported objectives are never silently replaced with feasibility results. A scheduling search limit is reported as inconclusive, not infeasible. No AI services or new dependencies are used.
+Existing input limits apply (24 tasks / 12 slots for scheduling; 16 nodes for routing). Unsupported objectives are never silently replaced with feasibility results. A search limit is reported as inconclusive, not infeasible. No AI services or new dependencies are used.
+
+### Resource allocation
+
+Enter resource names and task names, each on a separate line. Give each resource a capacity and each task a positive requirement, then select the resources eligible for that task. Each whole task must be assigned to **exactly one** eligible resource, and the sum of requirements assigned to a resource must fit its capacity. Use one common unit across all inputs, such as work hours across teams in the same planning period. This is not a model of tasks simultaneously consuming different resource types (such as CPU plus RAM), scheduling, splitting tasks, or selecting a profitable subset.
+
+Capacities are whole numbers from 0 to 1 billion; requirements are whole numbers from 1 to 1 billion. The limits are 8 resources and 16 tasks, with unique names of up to 40 characters. New resources default to zero capacity; new tasks default to one unit and all current resources eligible. Review these defaults. Removing a resource removes it from eligibility selections; adding a resource does not automatically make it eligible for existing tasks. Empty eligibility is a valid but infeasible model.
+
+The shared model inspector shows binary assignment variables, an exactly-once constraint for every task, and a capacity inequality for every resource. **Solve this model** runs the small exact solver in `allocation_solver.py`, trying constrained/larger tasks first, undoing failed placements, and remembering failed remaining-capacity states. The example requires revisiting an earlier choice; it is solved at runtime, not hardcoded. Search is bounded by 50,000 attempted placements or two seconds.
+
+Successful results show each task's resource, each resource's used and remaining capacity, and the outcome of the independent constraint audit. Provably impossible inputs show capacity shortages, tasks that fit no eligible resource, or a joint constraint conflict established by exhaustive search. These messages do not claim a minimal conflicting constraint set. Hitting a search limit reports unknown feasibility, and no partial allocation or invented remaining-capacity result is shown. Editing capacities, requirements, or eligibility invalidates the old model and result. Allocation is inspected in Studio through shared result tables; it is not sent to scheduling or routing tools with different constraints.
+
+Focused allocation checks: `python -m unittest discover -s tests -p 'test_allocation.py' -v`.
 
 Focused Studio checks: `python -m unittest discover -s tests -p 'test_problem_studio.py' -v`.
 
@@ -67,9 +80,9 @@ Focused Studio checks: `python -m unittest discover -s tests -p 'test_problem_st
 
 `PROBLEM_TYPES` in `problem_models.py` is the central registry. Each entry defines its label/scope, input defaults, example, model builder, solver adapter, solver name, and optional existing inspection tool. `solve_model` dispatches by the exact registered model kind and returns `unsupported` for unknown kinds; it never falls through to scheduling or routing.
 
-To add a supported formulation, supply its validated builder and solver adapter returning the common `Model`/`Solution` structures, register a `ProblemType` under that model's kind, and add its field renderer to `INPUT_RENDERERS` in `problem_studio.py`. Use distinct input field names for independent drafts. Renderers draw domain inputs; the shared Studio flow handles state, examples, validation messages, model inspection, support status, solving, explanations, and variable values. Optional schedule/route presentation is retained for the current types; other results use the common values and explanation fields. No new page or copied orchestration is needed. Only declare a Workbench/Graph Explorer handoff when the adapter supplies that existing tool's `Problem`/`Graph` and trace contract; otherwise leave it unset.
+To add a supported formulation, supply its validated builder and solver adapter returning the common `Model`/`Solution` structures, register a `ProblemType` under that model's kind, and add its field renderer to `INPUT_RENDERERS` in `problem_studio.py`. Use distinct input field names for independent drafts. Renderers draw domain inputs; the shared Studio flow handles state, examples, validation messages, model inspection, support status, solving, explanations, and variable values. Optional schedule/route presentation is retained for those types; other results can provide reusable `ResultTable` data, diagnostics, variable values, and explanations. No new page or copied orchestration is needed. Only declare a Workbench/Graph Explorer handoff when the adapter supplies that existing tool's `Problem`/`Graph` and trace contract; otherwise leave it unset.
 
-The supported types are scheduling feasibility and network routing. The registry provides an extension point, not a claim that arbitrary described problems can be solved.
+The supported types are scheduling feasibility, network routing, and capacity-constrained resource allocation. The registry provides an extension point, not a claim that arbitrary described problems can be solved.
 
 ## Graph Explorer
 

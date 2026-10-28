@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from math import fsum, isclose
 from typing import Callable, Literal
 
+from allocation_solver import make_allocation_problem, solve_allocation
 from graph_algorithms import Traversal, make_graph, route_to, traverse
 from solver import Result, audit_schedule, make_problem, solve
 
@@ -40,6 +41,13 @@ class Model:
 
 
 @dataclass(frozen=True)
+class ResultTable:
+    title: str
+    columns: tuple[str, ...]
+    rows: tuple[tuple[str | int | float, ...], ...]
+
+
+@dataclass(frozen=True)
 class Solution:
     status: Literal["solved", "infeasible", "limit", "unsupported"]
     explanation: str
@@ -49,6 +57,8 @@ class Solution:
     objective_value: int | float | None = None
     schedule_trace: Result | None = None
     traversal: Traversal | None = None
+    tables: tuple[ResultTable, ...] = ()
+    diagnostics: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -194,6 +204,61 @@ def _solve_routing(model: Model) -> Solution:
                     route=path, objective_value=total, traversal=traversal)
 
 
+def allocation_model(resources: list[str], tasks: list[str], capacities: dict[str, int],
+                     requirements: dict[str, int], eligible: dict[str, list[str]]) -> Model:
+    problem = make_allocation_problem(resources, tasks, capacities, requirements, eligible)
+    symbols = {(task.name, resource.name): f"a[{i},{j}]"
+               for i, task in enumerate(problem.tasks, 1) for j, resource in enumerate(problem.resources, 1)
+               if resource.name in task.eligible}
+    variables = tuple(Variable(symbol, "{0, 1}", f"1 assigns the whole task {task} to {resource}; otherwise 0.")
+                      for (task, resource), symbol in symbols.items())
+    constraints = [Constraint(f"Assign {task.name} once",
+                              (" + ".join(symbols[(task.name, resource)] for resource in task.eligible) or "0") + " = 1",
+                              "Assign the entire task to exactly one eligible resource. No splitting or dropping tasks.")
+                   for task in problem.tasks]
+    constraints.extend(Constraint(f"Capacity of {resource.name}",
+                                  (" + ".join(f"{task.requirement} · {symbols[(task.name, resource.name)]}"
+                                              for task in problem.tasks if resource.name in task.eligible) or "0") + f" ≤ {resource.capacity}",
+                                  "The total requirements assigned here cannot exceed this resource's capacity.")
+                       for resource in problem.resources)
+    return Model(
+        kind="allocation",
+        parameters=tuple((f"resource {i}", f"{resource.name}: capacity {resource.capacity}")
+                         for i, resource in enumerate(problem.resources, 1)) +
+                   tuple((f"task {i}", f"{task.name}: requires {task.requirement}")
+                         for i, task in enumerate(problem.tasks, 1)),
+        variables=variables, constraints=tuple(constraints),
+        objective="Find a feasible allocation", objective_expression="min 0  subject to all constraints",
+        objective_explanation="All complete allocations satisfying eligibility and capacity constraints are equally acceptable. This does not minimize cost or balance workloads.",
+        assumptions=("Each whole task uses exactly one eligible resource. A task cannot be split across resources.",
+                     "Capacities and requirements are whole numbers in one common unit, over one shared planning period.",
+                     "All tasks are mandatory. No timing, sequencing, or simultaneous requirements for different resource types are modelled."),
+        supported=True, support_note="Supported by a capacity-aware exact search with backtracking and repeated-state pruning. A search limit is inconclusive.",
+        problem=problem,
+    )
+
+
+def _solve_allocation(model: Model) -> Solution:
+    problem = model.problem
+    result = solve_allocation(problem)
+    if result.status != "solved":
+        explanation = ("No feasible allocation exists for these inputs." if result.status == "infeasible" else
+                       "No feasible allocation was found before the search limit; this is not a proof of infeasibility.")
+        return Solution(result.status, explanation, diagnostics=result.issues)
+    assigned, used = dict(result.assignments), dict(result.used)
+    return Solution(
+        "solved", f"All {len(problem.tasks)} tasks were assigned exactly once to eligible resources. Every capacity was independently checked; no constraints are unsatisfied. The search tried {result.attempts} placements and revisited choices when necessary. This is a feasible allocation, not an optimized workload balance.",
+        values=tuple((f"a[{i},{j}]", int(assigned[task.name] == resource.name))
+                     for i, task in enumerate(problem.tasks, 1) for j, resource in enumerate(problem.resources, 1)
+                     if resource.name in task.eligible), objective_value=0,
+        tables=(ResultTable("Task allocation", ("Task", "Resource", "Requirement", "Assignment check"),
+                            tuple((task.name, assigned[task.name], task.requirement, "Satisfied · eligible, assigned once") for task in problem.tasks)),
+                ResultTable("Resource capacity", ("Resource", "Capacity", "Used", "Remaining", "Capacity check"),
+                            tuple((resource.name, resource.capacity, used[resource.name], resource.capacity - used[resource.name], "Satisfied")
+                                  for resource in problem.resources))),
+    )
+
+
 def input_lines(value: str) -> list[str]:
     return [line.strip() for line in value.splitlines() if line.strip()]
 
@@ -222,6 +287,18 @@ PROBLEM_TYPES = {
         build_model=lambda data: routing_model(input_lines(data["nodes"]), data["edges"], data["source"], data["target"], data["weights"]),
         solve=_solve_routing, solver_name="Dijkstra — minimum total cost with non-negative connections",
         inspector="graphs", inspector_label="Visualize in Graph Explorer ↗",
+    ),
+    "allocation": ProblemType(
+        label="Resource allocation",
+        description="Assign whole tasks to eligible resources without exceeding their capacities. Use one shared unit, such as available work hours across teams, for both capacities and task requirements.",
+        input_defaults={"allocation_resources": "", "allocation_tasks": "", "capacities": {}, "requirements": {}, "eligible_resources": {}},
+        example={"allocation_resources": "Team North\nTeam South", "allocation_tasks": "Install\nInspect\nDocument\nHandover",
+                 "capacities": {"Team North": 8, "Team South": 6},
+                 "requirements": {"Install": 6, "Inspect": 4, "Document": 3, "Handover": 1},
+                 "eligible_resources": {task: ["Team North", "Team South"] for task in ("Install", "Inspect", "Document", "Handover")}},
+        build_model=lambda data: allocation_model(input_lines(data["allocation_resources"]), input_lines(data["allocation_tasks"]),
+                                                  data["capacities"], data["requirements"], data["eligible_resources"]),
+        solve=_solve_allocation, solver_name="Exact capacity-constrained assignment — feasibility with explicit search limits",
     ),
 }
 
