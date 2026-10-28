@@ -1,6 +1,7 @@
 """Exact, capacity-constrained assignment of whole tasks; no UI dependencies."""
 
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from time import perf_counter
 from typing import Literal, Mapping, Sequence
 
@@ -9,6 +10,7 @@ MAX_RESOURCES = 8
 MAX_TASKS = 16
 MAX_UNITS = 1_000_000_000
 MAX_NAME_LENGTH = 40
+MAX_COST = 1_000_000_000
 
 
 @dataclass(frozen=True)
@@ -28,6 +30,7 @@ class Task:
 class AllocationProblem:
     resources: tuple[Resource, ...]
     tasks: tuple[Task, ...]
+    costs: tuple[tuple[str, str, int], ...] | None = None  # Exact hundredths; None means feasibility.
 
 
 @dataclass(frozen=True)
@@ -37,6 +40,8 @@ class AllocationResult:
     used: tuple[tuple[str, int], ...] = ()
     issues: tuple[str, ...] = ()
     attempts: int = 0
+    total_cost: int | None = None  # Hundredths of the user's cost unit.
+    optimal: bool | None = None  # None: feasibility only; False: interrupted optimization.
 
 
 def validate_names(names: Sequence[str], kind: str, maximum: int) -> tuple[str, ...]:
@@ -54,7 +59,8 @@ def validate_names(names: Sequence[str], kind: str, maximum: int) -> tuple[str, 
 
 def make_allocation_problem(resources: Sequence[str], tasks: Sequence[str],
                             capacities: Mapping[str, int], requirements: Mapping[str, int],
-                            eligible: Mapping[str, Sequence[str]]) -> AllocationProblem:
+                            eligible: Mapping[str, Sequence[str]],
+                            costs: Mapping[tuple[str, str], object] | None = None) -> AllocationProblem:
     resources = validate_names(resources, "resource", MAX_RESOURCES)
     tasks = validate_names(tasks, "task", MAX_TASKS)
     for names, quantities, minimum, label in ((resources, capacities, 0, "Capacity"),
@@ -70,7 +76,25 @@ def make_allocation_problem(resources: Sequence[str], tasks: Sequence[str],
         if set(eligible[name]) - set(resources):
             raise ValueError(f"Eligible resources for {name} must exist in the resource list.")
         normalized.append(Task(name, requirements[name], tuple(resource for resource in resources if resource in eligible[name])))
-    return AllocationProblem(tuple(Resource(name, capacities[name]) for name in resources), tuple(normalized))
+    parsed_costs = []
+    if costs is not None:
+        for task in normalized:
+            for resource in task.eligible:
+                value = costs.get((task.name, resource))
+                if value is None:
+                    raise ValueError(f"Missing allocation cost: {task.name} → {resource}. Enter every eligible assignment cost, or choose feasibility only.")
+                try:
+                    amount = Decimal(str(value))
+                except InvalidOperation:
+                    raise ValueError("Allocation costs must be numeric.") from None
+                if not amount.is_finite() or not 0 <= amount <= MAX_COST:
+                    raise ValueError(f"Allocation costs must be finite and between 0 and {MAX_COST}.")
+                cents = amount * 100
+                if cents != cents.to_integral_value():
+                    raise ValueError("Allocation costs support at most two decimal places.")
+                parsed_costs.append((task.name, resource, int(cents)))
+    return AllocationProblem(tuple(Resource(name, capacities[name]) for name in resources), tuple(normalized),
+                             tuple(parsed_costs) if costs is not None else None)
 
 
 def audit_allocation(problem: AllocationProblem, assignments: Mapping[str, str]) -> tuple[tuple[str, ...], dict[str, int]]:
@@ -97,15 +121,17 @@ def audit_allocation(problem: AllocationProblem, assignments: Mapping[str, str])
 
 def solve_allocation(problem: AllocationProblem, *, max_attempts: int = 50_000,
                      time_limit: float = 2.0) -> AllocationResult:
-    """Backtrack over eligible resources, pruning capacity violations and repeated states.
+    """Shared exact search for feasibility or minimum cost using branch and bound.
 
     Only exhaustive failure (or a proved necessary-condition failure) means
-    infeasible. Limits return no partial allocation and make no feasibility claim.
+    infeasible. Optimization limits may return a verified complete incumbent,
+    explicitly marked non-optimal. Partial allocations are never returned.
     """
     problem = make_allocation_problem(
         [resource.name for resource in problem.resources], [task.name for task in problem.tasks],
         {resource.name: resource.capacity for resource in problem.resources},
-        {task.name: task.requirement for task in problem.tasks}, {task.name: task.eligible for task in problem.tasks})
+        {task.name: task.requirement for task in problem.tasks}, {task.name: task.eligible for task in problem.tasks},
+        {(task, resource): Decimal(cost) / 100 for task, resource, cost in problem.costs} if problem.costs is not None else None)
     if max_attempts < 0 or time_limit < 0:
         raise ValueError("Search limits must be non-negative.")
     capacities = {resource.name: resource.capacity for resource in problem.resources}
@@ -124,21 +150,41 @@ def solve_allocation(problem: AllocationProblem, *, max_attempts: int = 50_000,
     order = sorted(problem.tasks, key=lambda task: (len(task.eligible), -task.requirement))
     remaining = capacities.copy()
     assignments = {}
-    failed = set()
+    optimize = problem.costs is not None
+    costs = {(task, resource): cost for task, resource, cost in problem.costs or ()}
+    seen = {}  # Cheapest prefix reaching the same remaining-capacity state.
+    best = None
+    best_cost = None
     attempts = 0
     started = perf_counter()
 
-    def search(index: int) -> bool | None:
-        nonlocal attempts
+    def search(index: int, spent: int = 0) -> bool | None:
+        nonlocal attempts, best, best_cost
         if index == len(order):
-            return True
+            if best_cost is None or spent < best_cost:
+                best, best_cost = assignments.copy(), spent
+            return not optimize
         if attempts >= max_attempts or perf_counter() - started >= time_limit:
             return None
         state = (index, tuple(remaining.values()))
-        if state in failed:
+        if state in seen and seen[state] <= spent:
             return False
+        seen[state] = spent
+        if optimize:
+            # Independent cheapest choices ignore competition for capacity, so
+            # this is a lower bound, never an overestimate of a completion's cost.
+            lower_bound = spent
+            for pending in order[index:]:
+                options = [costs[(pending.name, resource)] for resource in pending.eligible
+                           if pending.requirement <= remaining[resource]]
+                if not options:
+                    return False
+                lower_bound += min(options)
+            if best_cost is not None and lower_bound >= best_cost:
+                return False
         task = order[index]
-        for resource in task.eligible:
+        choices = sorted(task.eligible, key=lambda resource: costs[(task.name, resource)]) if optimize else task.eligible
+        for resource in choices:
             if attempts >= max_attempts or perf_counter() - started >= time_limit:
                 return None
             attempts += 1
@@ -146,23 +192,27 @@ def solve_allocation(problem: AllocationProblem, *, max_attempts: int = 50_000,
                 continue
             assignments[task.name] = resource
             remaining[resource] -= task.requirement
-            result = search(index + 1)
+            result = search(index + 1, spent + costs.get((task.name, resource), 0))
             if result is True:
                 return True
             remaining[resource] += task.requirement
             del assignments[task.name]
             if result is None:
                 return None
-        failed.add(state)
         return False
 
     outcome = search(0)
-    if outcome is None:
+    if outcome is None and best is None:
         return AllocationResult("limit", issues=("No allocation found within the search limit. Feasibility is unknown; no partial assignment is presented.",), attempts=attempts)
-    if not outcome:
+    if best is None:
         return AllocationResult("infeasible", issues=("Exhaustive search found that assigning every whole task to an eligible resource and respecting all capacities is impossible. These constraints conflict jointly, even if total capacity is sufficient.",), attempts=attempts)
+    assignments = best
     violations, used = audit_allocation(problem, assignments)
     if violations:
         raise RuntimeError("The allocation failed independent verification: " + " ".join(violations))
+    total = sum(costs[(task, resource)] for task, resource in assignments.items()) if optimize else None
+    if optimize and total != best_cost:
+        raise RuntimeError("The allocation cost failed independent verification.")
     return AllocationResult("solved", tuple((task.name, assignments[task.name]) for task in problem.tasks),
-                            tuple(used.items()), attempts=attempts)
+                            tuple(used.items()), attempts=attempts, total_cost=total,
+                            optimal=(outcome is not None) if optimize else None)

@@ -6,7 +6,7 @@ from itertools import combinations
 
 import streamlit as st
 
-from allocation_solver import MAX_RESOURCES, MAX_TASKS as MAX_ALLOCATION_TASKS, MAX_UNITS, validate_names
+from allocation_solver import MAX_COST, MAX_RESOURCES, MAX_TASKS as MAX_ALLOCATION_TASKS, MAX_UNITS, validate_names
 from graph_algorithms import MAX_NODES
 from graph_explorer import graph_markup, render_edge_costs
 from problem_models import PROBLEM_TYPES, Model, Solution, input_lines as _lines, solve_model
@@ -140,7 +140,7 @@ def _routing_inputs(data: dict) -> None:
     st.caption("Minimize the sum of connection costs between two different locations. Costs must be finite, from 0 to 1 trillion. One-way links, negative costs, capacities, and multiple routes are unsupported. No costs are inferred from location names.")
 
 
-def _save_allocation_value(field: str, name: str, key: str) -> None:
+def _save_allocation_value(field: str, name: str | tuple[str, str], key: str) -> None:
     _state()[field][name] = st.session_state[key]
     _invalidate_inputs()
 
@@ -191,6 +191,22 @@ def _allocation_inputs(data: dict) -> None:
             st.session_state[key] = data["eligible_resources"][name]
             st.multiselect(f"{name} · eligible resources", resources, key=key,
                            on_change=_save_allocation_value, args=("eligible_resources", name, key))
+    _heading("04", "What counts as success?")
+    st.selectbox("Allocation objective", ("feasible", "min_cost"), key="_ps_allocation_goal",
+                 format_func=lambda value: "Find a feasible allocation" if value == "feasible" else "Minimize total allocation cost",
+                 on_change=_save, args=("allocation_goal",))
+    if data["allocation_goal"] == "min_cost":
+        st.caption("Enter a cost for every eligible task–resource assignment, in one common cost unit. This is the full cost per task, not a per-unit rate. Blank means missing, not zero. Use non-negative costs with at most two decimal places.")
+        columns = st.columns(2)
+        pairs = [(task, resource) for task in tasks for resource in data["eligible_resources"][task]]
+        for index, pair in enumerate(pairs):
+            key = f"_ps_allocation_costs_{pair!r}"
+            value = data["allocation_costs"].get(pair)
+            st.session_state[key] = float(value) if value is not None else None
+            with columns[index % 2]:
+                st.number_input(f"{pair[0]} → {pair[1]} · assignment cost", min_value=0.0, max_value=float(MAX_COST),
+                                value=None, step=0.5, format="%.2f", key=key,
+                                on_change=_save_allocation_value, args=("allocation_costs", pair, key))
 
 
 # Domain-specific fields only. Model building, solving, and results are shared.
@@ -252,7 +268,10 @@ def _render_solution(solution: Solution, model: Model) -> None:
         if model.kind == "routing":
             st.image(graph_markup(model.problem), width="stretch")
         return
-    st.success("Verified solution for the structured model")
+    if solution.optimal is False:
+        st.warning("Feasible allocation · optimality not proven (search limit)")
+    else:
+        st.success("Optimal allocation · minimum cost proven" if solution.optimal is True else "Verified solution for the structured model")
     if solution.schedule:
         st.dataframe([{"Task": task, "Assigned slot": slot} for task, slot in solution.schedule],
                      hide_index=True, width="stretch")
@@ -270,7 +289,11 @@ def _render_solution(solution: Solution, model: Model) -> None:
             st.dataframe([{"From": a, "To": b, "Cost": costs[frozenset((a, b))]}
                           for a, b in zip(solution.route, solution.route[1:])], hide_index=True, width="stretch")
     elif solution.objective_value is not None:
-        st.caption(f"Objective value: {solution.objective_value}")
+        if solution.optimal is not None:
+            label = "Minimum total allocation cost" if solution.optimal else "Best total allocation cost found · not proven minimum"
+            st.markdown(f"**{label}: {solution.objective_value:,.2f}**")
+        else:
+            st.caption(f"Objective value: {solution.objective_value}")
     for table in solution.tables:
         st.markdown(f"**{table.title}**")
         st.dataframe([dict(zip(table.columns, row)) for row in table.rows], hide_index=True, width="stretch")

@@ -25,7 +25,7 @@ def method_notes(model: Model) -> dict[str, str]:
                                  if model.problem.weights is not None else
                                  "Connections form an undirected graph. BFS explores distance layers; its discovery tree supplies a minimum-hop route.")
     elif model.kind == "allocation":
-        notes["Advanced Combinatorial Techniques"] = "Exact search assigns whole tasks to eligible resources, prunes capacity violations, and remembers failed remaining-capacity states. It finds feasibility, not an optimized workload balance."
+        notes["Advanced Combinatorial Techniques"] = "Exact search assigns whole tasks to eligible resources and prunes capacity violations. Cost optimization adds admissible lower bounds and compares prefix costs at repeated capacity states; only a completed proof establishes minimum cost."
     return notes
 
 
