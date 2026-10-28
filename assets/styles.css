@@ -123,3 +123,33 @@ button:focus-visible { outline:2px solid #8c9b64!important; outline-offset:4px; 
 .ge-empty span { font-size:12px; color:#838b79; }
 .st-key-graph_page .site-footer { margin-top:40px; }
 @media (max-width:640px) { .st-key-graph_page { padding-top:28px; } .ge-intro h1 { font-size:42px; } }
+
+/* Problem Studio shares the palette and numbered form headings. */
+.st-key-studio_page { max-width:1120px; padding:38px clamp(24px,4vw,64px) 32px; margin:auto; gap:16px; }
+.st-key-studio_page [data-testid="stVerticalBlock"] { gap:14px; }
+.ps-intro h1 { font-size:clamp(42px,5vw,70px); font-weight:500; line-height:1.05; letter-spacing:-.055em; margin:18px 0; padding:0; }
+.ps-intro > p:last-child { max-width:570px; font-size:14px; color:var(--muted); line-height:1.8; margin:0 0 12px; }
+.st-key-studio_page [data-testid="stWidgetLabel"] p { font-size:12px; color:#525b49; }
+.st-key-studio_page textarea { background:#eeeee4; border-radius:2px; font-size:14px; line-height:1.8; }
+.st-key-studio_page button, .st-key-studio_page details { border-radius:2px; }
+.st-key-studio_page [data-baseweb="tag"] { height:auto; max-width:100%; padding:5px 6px; }
+.st-key-studio_page [data-baseweb="tag"] > span[title] { max-width:none; min-width:0; white-space:normal; overflow-wrap:anywhere; }
+.st-key-studio_page button[kind="primary"] { background:#293124; border-color:#293124; color:#f3f5ea; padding:12px 22px; }
+.st-key-studio_page button[kind="primary"]:hover { background:#46513a; border-color:#46513a; }
+.st-key-studio_page button[kind="primary"]:disabled { background:#d9ddce; border-color:#d9ddce; color:#7d8473; }
+.st-key-ps_inputs { border-top:1px solid var(--line); padding-top:24px; margin-top:10px; }
+.ps-model-heading { border-top:1px solid var(--line); margin-top:30px; padding-top:30px; }
+.ps-model-heading h2 { font-size:38px; font-weight:500; letter-spacing:-1.4px; line-height:1.15; margin:14px 0 8px; padding:0; }
+.ps-support { border-left:2px solid #8c9b70; padding:8px 18px; background:#e9ecdf; }
+.ps-support > span { font:9px "SFMono-Regular",Consolas,monospace; color:#596b45; letter-spacing:.7px; }
+.ps-support p { font-size:13px; color:#5e6b52; line-height:1.75; margin:8px 0 0; }
+.ps-symbols { font:11px "SFMono-Regular",Consolas,monospace; line-height:1.9; color:#66715c; overflow-wrap:anywhere; }
+.ps-equation { border-left:2px solid #8c9b70; padding:18px 20px; background:#eeeee4; font:16px/1.9 "SFMono-Regular",Consolas,monospace; overflow-wrap:anywhere; }
+.ps-result-label { border-top:1px solid var(--line); padding-top:26px; margin-top:14px; }
+.ps-route { display:flex; align-items:center; flex-wrap:wrap; gap:12px; padding:16px 0; font-size:23px; letter-spacing:-.5px; }
+.ps-route > span { overflow-wrap:anywhere; max-width:100%; }
+.ps-route-arrow { color:#899677; }
+.ps-empty { border-top:1px solid var(--line); margin-top:24px; padding-top:30px; font-size:23px; color:#555f49; line-height:1.8; }
+.ps-empty span { font-size:12px; color:#838b79; }
+.st-key-studio_page .site-footer { margin-top:30px; }
+@media (max-width:640px) { .st-key-studio_page { padding-top:28px; } .ps-model-heading h2 { font-size:32px; } }

@@ -1,6 +1,6 @@
 # DiscreteOps
 
-A Python and Streamlit interface for discrete mathematics and optimization. Product navigation leads to Explore, Workbench, Graph Explorer, Visualizations, and About. The landing page is an interactive visual story; the Constraint Workbench builds real schedules with backtracking.
+A Python and Streamlit interface for discrete mathematics and optimization. Product navigation leads to Explore, Workbench, Graph Explorer, Problem Studio, Visualizations, and About. The landing page is an interactive visual story; the Constraint Workbench builds real schedules with backtracking.
 
 ## Run locally
 
@@ -23,11 +23,24 @@ Open http://localhost:8501. On Windows, activate the environment with `.venv\Scr
 - `solver.py`: Streamlit-independent input validation, backtracking, and schedule verification.
 - `graph_explorer.py`: graph editing, examples, SVG visualization, and interactive traversal steps.
 - `graph_algorithms.py`: Streamlit-independent graph validation and recorded BFS/DFS traversals.
+- `problem_studio.py`: guided scheduling/routing forms and model/solution inspection.
+- `problem_models.py`: Streamlit-independent model generation and adapters to existing solvers.
 - `assets/styles.css`: shared palette, typography, responsive layout, and subtle motion.
 - `assets/experience.html`: a self-contained canvas component for the scroll narrative and visual lab.
 - `.streamlit/config.toml`: base Streamlit theme.
 
 Explore progresses from points to connections to an illustrative constrained space. Scroll within the experience or use its three chapter buttons; Visualizations exposes the same scene with a scrubber. The highlighted choice and boundaries in these visual studies are authored drawing positions, not computed solutions.
+
+## Problem Studio
+
+Choose **Task scheduling** or **Network routing**, enter inputs through the numbered form (or load an example), then **Build model**. Inspect the Variables, Constraints, and Objective tabs, along with the input-symbol mapping and assumptions. Building a model does not solve it. **Solve this model** runs only supported formulations; edits clear stale models and results. Studio inputs persist across navigation independently of the Workbench and Graph Explorer.
+
+- Scheduling creates one slot-valued variable per task, domain constraints, and an inequality for each conflicting pair. The feasibility objective (`min 0`) reuses the existing backtracking scheduler and independent schedule audit. The optional **Minimize used slots** objective counts distinct assigned slots; it is explicitly **model only**, because the scheduler does not prove an optimum. Durations, deadlines, precedence, and capacity are outside the model.
+- Routing creates two binary arc variables for each undirected connection and a flow-conservation constraint at every node, with +1 at the source and −1 at the destination. The objective minimizes selected arcs (unit-cost hops). The existing BFS discovery tree supplies a shortest route; selected connections and flow balances are verified. Disconnected endpoints are reported as infeasible. Source and destination must differ. Weighted, directed, capacity-constrained, and multiple-route problems are unsupported.
+
+Existing input limits apply (24 tasks / 12 slots or 16 nodes). Unsupported objectives are never silently replaced with feasibility results. A scheduling search limit is reported as inconclusive, not infeasible. No AI services or new dependencies are used.
+
+Focused Studio checks: `python -m unittest discover -s tests -p 'test_problem_studio.py' -v`.
 
 ## Graph Explorer
 

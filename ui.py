@@ -7,6 +7,7 @@ import streamlit.components.v1 as components
 
 from workbench import render_workbench_content
 from graph_explorer import render_graph_explorer_content
+from problem_studio import render_problem_studio_content
 
 
 ASSETS = Path(__file__).parent / "assets"
@@ -65,6 +66,13 @@ def render_graph_explorer() -> None:
         footer()
 
 
+def render_problem_studio() -> None:
+    masthead("PROBLEM STUDIO", "FROM A QUESTION TO A MATHEMATICAL MODEL")
+    with st.container(key="studio_page"):
+        render_problem_studio_content()
+        footer()
+
+
 def render_about() -> None:
     masthead("ABOUT", "THE THINKING BEHIND THE SPACE")
     with st.container(key="product_page"):
@@ -89,6 +97,7 @@ PAGES = {
     "explore": ("Explore", render_home),
     "workbench": ("Workbench", render_workbench),
     "graphs": ("Graph Explorer", render_graph_explorer),
+    "studio": ("Problem Studio", render_problem_studio),
     "visualizations": ("Visualizations", render_visualizations),
     "about": ("About", render_about),
 }
