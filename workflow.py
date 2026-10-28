@@ -21,7 +21,9 @@ def method_notes(model: Model) -> dict[str, str]:
             notes["Advanced Combinatorial Techniques"] = "The existing backtracking search rejects conflicting placements and revisits earlier choices. It finds feasibility, not a proven minimum."
         notes["Graph Theory"] = "Tasks and conflict pairs form a conflict graph. Assigning different slots to adjacent tasks is a graph-colouring formulation."
     elif model.kind == "routing":
-        notes["Graph Theory"] = "Connections form an undirected graph. BFS explores distance layers; its discovery tree supplies a minimum-hop route."
+        notes["Graph Theory"] = ("Connections form a weighted, undirected graph. Dijkstra settles locations in increasing total cost; its predecessor tree supplies a minimum-cost route."
+                                 if model.problem.weights is not None else
+                                 "Connections form an undirected graph. BFS explores distance layers; its discovery tree supplies a minimum-hop route.")
     return notes
 
 
@@ -47,9 +49,10 @@ def open_inspector(state, model: Model, solution: Solution | None) -> None:
         data = {**inputs, "result": (model.problem, trace) if trace is not None else None, "dirty": False}
     else:
         page, key, prefix = "graphs", "gx_data", "_gx_"
-        inputs = {"nodes": "\n".join(model.problem.nodes), "edges": list(model.problem.edges), "start": model.source}
+        inputs = {"nodes": "\n".join(model.problem.nodes), "edges": list(model.problem.edges), "start": model.source,
+                  "weights": model.problem.costs() if model.problem.weights is not None else None}
         trace = solution.traversal if solution else None
-        data = {**inputs, "method": "BFS", "step": 1 if trace else 0,
+        data = {**inputs, "method": "Dijkstra" if model.problem.weights is not None else "BFS", "step": 1 if trace else 0,
                 "result": (model.problem, trace) if trace else None, "dirty": False}
     state["studio_handoff"] = {"page": page, "key": key, "prefix": prefix,
                                "previous": deepcopy(state.get(key)), "inputs": deepcopy(inputs), "model": model}

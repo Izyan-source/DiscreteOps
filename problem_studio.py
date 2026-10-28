@@ -7,6 +7,7 @@ from itertools import combinations
 import streamlit as st
 
 from graph_algorithms import MAX_NODES
+from graph_explorer import graph_markup, render_edge_costs
 from problem_models import PROBLEM_TYPES, Model, Solution, input_lines as _lines, solve_model
 from solver import MAX_SLOTS, MAX_TASKS
 from workflow import SYLLABUS_AREAS, method_notes, open_inspector
@@ -58,6 +59,11 @@ def _save(field: str) -> None:
                 if data[endpoint] not in names:
                     data[endpoint] = default
                     st.session_state[f"_ps_{endpoint}"] = default
+
+
+def _invalidate_costs() -> None:
+    data = _state()
+    data.update(dirty=data["dirty"] or data["model"] is not None, model=None, solution=None)
 
 
 def _load_example() -> None:
@@ -115,21 +121,22 @@ def _routing_inputs(data: dict) -> None:
     _heading("01", "Define the network.")
     nodes, edges = st.columns([1, 1.5], gap="large")
     with nodes:
-        st.text_area("Nodes · one per line", key="_ps_nodes", height=145, max_chars=1000,
+        st.text_area("Locations · one per line", key="_ps_nodes", height=145, max_chars=1000,
                      placeholder="Depot\nJunction\nAirport", on_change=_save, args=("nodes",),
                      help=f"Up to {MAX_NODES} unique nodes, 24 characters per name.")
     with edges:
         _pair_editor("edges", _lines(data["nodes"]), MAX_NODES, "Two-way connections")
-        st.caption("Every connection has the same cost: one hop. Isolated nodes are allowed; they can make a route impossible.")
+        st.caption("Connections have the same cost in both directions. Isolated locations are allowed; they can make a route impossible.")
+    render_edge_costs(data, "_ps_", _invalidate_costs)
     _heading("02", "Where should the route go?")
     source, target = st.columns(2, gap="large")
     names = list(dict.fromkeys(_lines(data["nodes"])))
     with source:
-        st.selectbox("Source", names, key="_ps_source", disabled=not names, on_change=_save, args=("source",))
+        st.selectbox("Start", names, key="_ps_source", disabled=not names, on_change=_save, args=("source",))
     with target:
         st.selectbox("Destination", names, key="_ps_target", disabled=not names, on_change=_save, args=("target",))
-    _heading("03", "Take the fewest connections.")
-    st.caption("The objective is a minimum-hop route between two different nodes. Weighted costs, one-way links, capacities, and multiple routes are not supported; no such properties are inferred from names.")
+    _heading("03", "Find the lowest total cost.")
+    st.caption("Minimize the sum of connection costs between two different locations. Costs must be finite, from 0 to 1 trillion. One-way links, negative costs, capacities, and multiple routes are unsupported. No costs are inferred from location names.")
 
 
 # Domain-specific fields only. Model building, solving, and results are shared.
@@ -181,11 +188,13 @@ def _render_model(model: Model) -> None:
         st.write(model.objective_explanation)
 
 
-def _render_solution(solution: Solution) -> None:
+def _render_solution(solution: Solution, model: Model) -> None:
     st.html('<div class="ps-result-label"><span class="eyebrow">SOLVER RESULT</span></div>')
     if solution.status != "solved":
         label = {"infeasible": "No feasible solution", "limit": "Search limit · inconclusive", "unsupported": "Solving is unsupported"}[solution.status]
         st.warning(label + ". " + solution.explanation)
+        if model.kind == "routing":
+            st.image(graph_markup(model.problem), width="stretch")
         return
     st.success("Verified solution for the structured model")
     if solution.schedule:
@@ -195,7 +204,15 @@ def _render_solution(solution: Solution) -> None:
     elif solution.route:
         route = '<span class="ps-route-arrow">→</span>'.join(f'<span>{escape(node)}</span>' for node in solution.route)
         st.html(f'<div class="ps-route">{route}</div>')
-        st.caption(f"Optimal objective value: {solution.objective_value} hops")
+        st.caption(f"Minimum total cost: {solution.objective_value:.15g} · {len(solution.route) - 1} connections · in your chosen cost unit")
+        drawing, breakdown = st.columns([1.5, 1], gap="large", vertical_alignment="center")
+        with drawing:
+            st.image(graph_markup(model.problem, route=solution.route), width="stretch")
+            st.caption("Highlighted edges form the shortest route. Numbers show route order; edge labels show costs.")
+        with breakdown:
+            costs = {frozenset(edge): cost for edge, cost in model.problem.costs().items()}
+            st.dataframe([{"From": a, "To": b, "Cost": costs[frozenset((a, b))]}
+                          for a, b in zip(solution.route, solution.route[1:])], hide_index=True, width="stretch")
     elif solution.objective_value is not None:
         st.caption(f"Objective value: {solution.objective_value}")
     st.write(solution.explanation)
@@ -263,7 +280,7 @@ def render_problem_studio_content() -> None:
             with st.spinner("Running the existing solver and checking the result…"):
                 data["solution"] = solve_model(model)
         if data["solution"] is not None:
-            _render_solution(data["solution"])
+            _render_solution(data["solution"], model)
         if definition.inspector:
             st.button(definition.inspector_label, key="ps_inspect", on_click=_inspect, args=(model, data["solution"]), disabled=not model.supported)
             st.caption("Continue with these inputs and the same recorded solver run, when available. Your existing inspection-page draft is kept; edits made there return to this Studio problem.")

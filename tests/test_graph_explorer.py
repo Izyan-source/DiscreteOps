@@ -2,11 +2,36 @@ import unittest
 
 from streamlit.testing.v1 import AppTest
 
-from graph_algorithms import make_graph, traverse
+from graph_algorithms import make_graph, route_to, traverse
 from graph_explorer import graph_markup
 
 
 class TraversalTests(unittest.TestCase):
+    def test_dijkstra_improves_costs_and_handles_zero_costs_and_islands(self):
+        graph = make_graph(list("ABCDE"), [("A", "B"), ("A", "C"), ("B", "C"), ("B", "D"), ("C", "D")],
+                           {("B", "A"): 10, ("A", "C"): 1.5, ("B", "C"): 0, ("B", "D"): 2, ("C", "D"): 8})
+        result = traverse(graph, "A", "Dijkstra")
+        self.assertEqual(result.order, tuple("ACBD"))
+        self.assertEqual(route_to(result, "D"), tuple("ACBD"))
+        self.assertEqual(dict(result.steps[-1].distances)["D"], 3.5)
+        self.assertEqual(dict(result.steps[1].distances)["B"], 10)
+        self.assertEqual(dict(result.steps[2].distances)["B"], 1.5)
+        self.assertEqual(result.unreachable, ("E",))
+        self.assertEqual(route_to(result, "E"), ())
+        self.assertEqual(route_to(traverse(graph, "D", "Dijkstra"), "A"), tuple("DBCA"))
+        markup = graph_markup(graph, route=route_to(result, "D"))
+        self.assertEqual(markup.count('class="ge-edge ge-edge-traced"'), 3)
+        self.assertIn('<title>Shortest route</title>', markup)
+
+    def test_cost_validation_and_deterministic_ties(self):
+        for cost in (-1, float("nan"), float("inf"), "bad", None, True, 1e13):
+            with self.subTest(cost=cost), self.assertRaises(ValueError):
+                make_graph(["A", "B"], [("A", "B")], {("A", "B"): cost})
+        with self.assertRaises(ValueError):
+            make_graph(["A", "B"], [("A", "B")], {("A", "B"): 1, ("B", "A"): 2})
+        graph = make_graph(list("ABCD"), [("A", "B"), ("A", "C"), ("B", "D"), ("C", "D")], {})
+        self.assertEqual(route_to(traverse(graph, "A", "Dijkstra"), "D"), tuple("ABD"))
+
     def test_bfs_and_dfs_on_a_cycle(self):
         graph = make_graph(list("ABCDE"), [("A", "B"), ("A", "C"), ("B", "D"),
                                               ("D", "E"), ("E", "C")])

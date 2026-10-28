@@ -78,6 +78,23 @@ class ModelTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             scheduling_model(["A", "a"], ["Morning"], [])
 
+    def test_weighted_routing_model_solution_and_disconnection(self):
+        model = routing_model(["Depot", "Hub", "Airport"],
+                              [("Depot", "Airport"), ("Depot", "Hub"), ("Hub", "Airport")], "Depot", "Airport",
+                              {("Depot", "Airport"): 12, ("Depot", "Hub"): 3, ("Hub", "Airport"): 2})
+        self.assertIn("12 · f[1,3]", model.objective_expression)
+        with patch("problem_models.traverse", wraps=traverse) as algorithm:
+            result = solve_model(model)
+            algorithm.assert_called_once_with(model.problem, "Depot", "Dijkstra")
+        self.assertEqual(result.route, ("Depot", "Hub", "Airport"))
+        self.assertEqual(result.objective_value, 5)
+        self.assertEqual(dict(result.values)["f[1,3]"], 0)
+        disconnected = solve_model(routing_model(["A", "B"], [], "A", "B", {}))
+        self.assertEqual(disconnected.status, "infeasible")
+        self.assertEqual(disconnected.route, ())
+        self.assertIsNone(disconnected.objective_value)
+        self.assertIn("disconnected", disconnected.explanation)
+
 
 class StudioTests(unittest.TestCase):
     def test_guided_models_editing_support_and_navigation(self):
@@ -103,12 +120,21 @@ class StudioTests(unittest.TestCase):
         app.button(key="ps_solve").click().run()
         result = app.session_state["ps_data"]["solution"]
         self.assertEqual(result.route, ("Depot", "Junction", "Airport"))
-        self.assertEqual(result.objective_value, 2)
+        self.assertEqual(result.objective_value, 5)
+        app.number_input(key="_ps_cost_('Depot', 'Airport')").set_value(0.5).run()
+        self.assertIsNone(app.session_state["ps_data"]["solution"])
+        app.button(key="ps_build").click().run()
+        app.button(key="ps_solve").click().run()
+        self.assertEqual(app.session_state["ps_data"]["solution"].route, ("Depot", "Airport"))
+        self.assertEqual(app.session_state["ps_data"]["solution"].objective_value, 0.5)
+        app.button(key="ps_example").click().run()
+        self.assertEqual(app.number_input(key="_ps_cost_('Depot', 'Airport')").value, 12.0)
         app.multiselect(key="_ps_edges").set_value([]).run()
         self.assertIsNone(app.session_state["ps_data"]["model"])
         app.button(key="ps_build").click().run()
         app.button(key="ps_solve").click().run()
         self.assertEqual(app.session_state["ps_data"]["solution"].status, "infeasible")
+        self.assertEqual(app.session_state["ps_data"]["weights"], {})
         app.text_area(key="_ps_nodes").set_value("Custom\nOther").run()
         self.assertEqual(app.selectbox(key="_ps_source").value, "Custom")
         self.assertEqual(app.selectbox(key="_ps_target").value, "Other")

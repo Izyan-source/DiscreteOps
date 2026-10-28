@@ -51,7 +51,7 @@ class WorkflowTests(unittest.TestCase):
         solution = app.session_state["ps_data"]["solution"]
         app.button(key="ps_inspect").click().run()
         self.assertEqual(app.session_state["gx_data"]["result"][1], solution.traversal)
-        self.assertEqual(app.radio(key="_gx_method").value, "BFS")
+        self.assertEqual(app.radio(key="_gx_method").value, "Dijkstra")
         self.assertEqual(app.selectbox(key="_gx_start").value, "Depot")
         app.button(key="gx_next").click().run()
         app.button(key="workflow_return").click().run()
@@ -60,6 +60,14 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(app.selectbox(key="_ps_source").value, "Depot")
         self.assertEqual(app.selectbox(key="_ps_target").value, "Airport")
         self.assertEqual(app.session_state["gx_data"], original)
+        app.button(key="ps_inspect").click().run()
+        app.number_input(key="_gx_cost_('Depot', 'Junction')").set_value(9.0).run()
+        self.assertIsNone(app.session_state["gx_data"]["result"])
+        app.button(key="workflow_return").click().run()
+        self.assertEqual(app.number_input(key="_ps_cost_('Depot', 'Junction')").value, 9.0)
+        self.assertIsNone(app.session_state["ps_data"]["solution"])
+        self.assertEqual(app.session_state["gx_data"], original)
+        app.button(key="ps_build").click().run()
         app.button(key="ps_inspect").click().run()
         app.text_area(key="_gx_nodes").set_value("Depot\nJunction\nHarbour").run()
         # Sidebar navigation also finishes the handoff and preserves edits.

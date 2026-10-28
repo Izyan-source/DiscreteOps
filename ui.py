@@ -86,7 +86,7 @@ def render_workflow_context(page: str) -> None:
     st.button("← Return to Problem Studio", key="workflow_return", on_click=navigate, args=("studio",))
     st.caption("Inspecting your Studio problem. Input edits return to Studio when you leave this view and require a rebuilt model. Your earlier independent draft is preserved.")
     if page == "graphs":
-        st.caption("This viewer shows the search, not the final route. BFS supports minimum-hop routing; DFS is exploratory. The route and its destination remain in Studio.")
+        st.caption("Replay the same search here. Dijkstra minimizes weighted cost; BFS and DFS explore connectivity and ignore costs. The selected route, destination, and total cost remain in Studio.")
 
 
 def render_about() -> None:

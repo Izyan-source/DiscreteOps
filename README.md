@@ -22,7 +22,7 @@ Open http://localhost:8501. On Windows, activate the environment with `.venv\Scr
 - `workbench.py`: editable scheduling inputs, examples, results, and constraint explanations.
 - `solver.py`: Streamlit-independent input validation, backtracking, and schedule verification.
 - `graph_explorer.py`: graph editing, examples, SVG visualization, and interactive traversal steps.
-- `graph_algorithms.py`: Streamlit-independent graph validation and recorded BFS/DFS traversals.
+- `graph_algorithms.py`: Streamlit-independent graph/cost validation and recorded BFS, DFS, and Dijkstra searches.
 - `problem_studio.py`: shared problem intake, type-specific forms, and model/solution inspection.
 - `problem_models.py`: the problem-type registry, model builders, and adapters to existing solvers, independent of Streamlit.
 - `workflow.py`: contextual method explanations and session handoffs that preserve existing inspection-page drafts.
@@ -38,7 +38,7 @@ Start with an optional problem description, or go directly to structured input. 
 
 Descriptions are saved as context only. They are not parsed, classified, or converted into constraints; every supported rule must be entered in the form. Changing the description alone does not change the mathematical model. Choose **Other / not supported yet** when the current assumptions do not fit: the description remains available, while model building and solving are unavailable. Results explicitly apply to the structured model, not every requirement mentioned in prose.
 
-Continue with **Inspect in Workbench** or **Visualize in Graph Explorer**. These actions carry the current inputs and, when available, the exact recorded solver run into the existing view without recomputing it. The Workbench displays schedule lanes and the search audit; Graph Explorer replays the BFS behind routing. The BFS traversal is a search over the reachable component, not the selected route itself; the route and destination stay in Studio. DFS remains available for exploration and does not replace the minimum-hop routing solver.
+Continue with **Inspect in Workbench** or **Visualize in Graph Explorer**. These actions carry the current inputs and, when available, the exact recorded solver run into the existing view without recomputing it. The Workbench displays schedule lanes and the search audit; Graph Explorer replays Dijkstra's search behind weighted routing, including tentative/final costs. The search covers the reachable component; Studio highlights the selected route and displays its total cost and leg-by-leg breakdown. BFS/DFS remain available for connectivity exploration and ignore weights; they do not replace the weighted routing solver.
 
 Return using the provided button or sidebar. Input edits in a linked view update the Studio problem and invalidate its previous model/result; rebuild before solving again. Playback-only changes keep the Studio result. An existing independent Workbench/Graph Explorer draft is temporarily set aside and restored when leaving the linked view. Opening those pages directly retains their original standalone editing behavior. Unsupported objectives cannot be handed to a solver with different semantics.
 
@@ -51,12 +51,13 @@ The **Methods behind this workflow** explanation uses the syllabus as a method v
 | Advanced Combinatorial Techniques | Existing backtracking and pruning for scheduling feasibility |
 | Recurrence Relations and Generating Functions | Not yet applied in these workflows |
 | Modular Arithmetic | Not yet applied in these workflows |
-| Graph Theory | Scheduling conflict graphs and minimum-hop routing with BFS |
+| Graph Theory | Scheduling conflict graphs and minimum-cost routing with Dijkstra |
 
-Only relevant methods are described as applied to each model. These mappings do not claim full syllabus coverage or introduce new algorithms. The separate Visualizations page remains an illustrative study, not a computed result view.
+Only relevant methods are described as applied to each model. These mappings do not claim full syllabus coverage. The separate Visualizations page remains an illustrative study, not a computed result view.
 
 - Scheduling creates one slot-valued variable per task, domain constraints, and an inequality for each conflicting pair. The feasibility objective (`min 0`) reuses the existing backtracking scheduler and independent schedule audit. The optional **Minimize used slots** objective counts distinct assigned slots; it is explicitly **model only**, because the scheduler does not prove an optimum. Durations, deadlines, precedence, and capacity are outside the model.
-- Routing creates two binary arc variables for each undirected connection and a flow-conservation constraint at every node, with +1 at the source and −1 at the destination. The objective minimizes selected arcs (unit-cost hops). The existing BFS discovery tree supplies a shortest route; selected connections and flow balances are verified. Disconnected endpoints are reported as infeasible. Source and destination must differ. Weighted, directed, capacity-constrained, and multiple-route problems are unsupported.
+- Routing accepts locations, two-way connections, a non-negative cost per connection, and distinct start/destination locations. Costs can represent distance, time, or expense but must use one consistent unit; no real-world costs are inferred. New connections default to 1. Costs must be finite and between 0 and 1 trillion. The example contrasts a direct connection costing 12 with a two-leg route costing 5.
+- The routing model creates two binary arc variables per connection and flow conservation at every location (+1 at the start, −1 at the destination). Its objective is the sum of each selected arc's cost. Dijkstra runs once in `graph_algorithms.py`; the adapter reconstructs the recorded path and verifies connections, flow balances, and total cost. Zero-cost edges are supported; equal-cost alternatives may exist, and node-list order breaks ties. The solver returns a simple route even if the flow model allows zero-cost cycles. Disconnected destinations produce a clear infeasible result with no route or cost. Negative costs, directed links, capacities, and multiple simultaneous routes remain unsupported. The original unweighted Python model API still uses BFS.
 
 Existing input limits apply (24 tasks / 12 slots or 16 nodes). Unsupported objectives are never silently replaced with feasibility results. A scheduling search limit is reported as inconclusive, not infeasible. No AI services or new dependencies are used.
 
@@ -68,11 +69,13 @@ Focused Studio checks: `python -m unittest discover -s tests -p 'test_problem_st
 
 To add a supported formulation, supply its validated builder and solver adapter returning the common `Model`/`Solution` structures, register a `ProblemType` under that model's kind, and add its field renderer to `INPUT_RENDERERS` in `problem_studio.py`. Use distinct input field names for independent drafts. Renderers draw domain inputs; the shared Studio flow handles state, examples, validation messages, model inspection, support status, solving, explanations, and variable values. Optional schedule/route presentation is retained for the current types; other results use the common values and explanation fields. No new page or copied orchestration is needed. Only declare a Workbench/Graph Explorer handoff when the adapter supplies that existing tool's `Problem`/`Graph` and trace contract; otherwise leave it unset.
 
-This change adds no problem types or algorithms beyond scheduling feasibility and unweighted routing. The registry provides an extension point, not a claim that arbitrary described problems can be solved.
+The supported types are scheduling feasibility and network routing. The registry provides an extension point, not a claim that arbitrary described problems can be solved.
 
 ## Graph Explorer
 
 Open **Graph Explorer** in the sidebar. A sample graph is preloaded; use **Edit nodes & connections** to create your own, or load the branching, disconnected, or blank example. Graphs are undirected and unweighted, with up to 16 uniquely named nodes (24 characters each). Select pairs to add connections; isolated nodes and cycles are supported.
+
+When opened from a weighted Studio model, Graph Explorer retains the connection costs and offers Dijkstra alongside BFS/DFS. Edit costs in the same graph editor; changed costs return to Studio and invalidate its old model/result. Edges are labelled with their costs, and Dijkstra playback shows the current predecessor tree, settled locations, and tentative distances. Loading a topology example in this linked view assigns its connections cost 1. Returning restores the independent Graph Explorer draft.
 
 Choose a starting node and BFS or DFS, then click **Run traversal**. Use Previous, Next, the step slider, or Show result to inspect actual algorithm snapshots. The graph highlights the current node, visited nodes, discovery edges, and the queue or active DFS path. Numbers mark first-visit order. Explanations describe every visit and DFS return; unreachable nodes are identified at completion. Both algorithms explore only the starting node's connected component and break neighbor ties using node-list order.
 

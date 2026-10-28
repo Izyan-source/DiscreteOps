@@ -1,9 +1,10 @@
 """Input-to-model translation and adapters for existing solvers; no Streamlit."""
 
 from dataclasses import dataclass
+from math import fsum, isclose
 from typing import Callable, Literal
 
-from graph_algorithms import Traversal, make_graph, traverse
+from graph_algorithms import Traversal, make_graph, route_to, traverse
 from solver import Result, audit_schedule, make_problem, solve
 
 
@@ -45,7 +46,7 @@ class Solution:
     values: tuple[tuple[str, str | int], ...] = ()
     schedule: tuple[tuple[str, str], ...] = ()
     route: tuple[str, ...] = ()
-    objective_value: int | None = None
+    objective_value: int | float | None = None
     schedule_trace: Result | None = None
     traversal: Traversal | None = None
 
@@ -105,8 +106,11 @@ def _arc_symbol(a: str, b: str, ids: dict[str, int]) -> str:
     return f"f[{ids[a]},{ids[b]}]"
 
 
-def routing_model(nodes: list[str], edges: list[tuple[str, str]], source: str, target: str) -> Model:
-    graph = make_graph(nodes, edges)
+def routing_model(nodes: list[str], edges: list[tuple[str, str]], source: str, target: str,
+                  weights: dict[tuple[str, str], float] | None = None) -> Model:
+    graph = make_graph(nodes, edges, weights)
+    weighted = weights is not None
+    costs = {frozenset(edge): cost for edge, cost in graph.costs().items()}
     if source not in graph.nodes or target not in graph.nodes:
         raise ValueError("Choose an existing source and destination node.")
     if source == target:
@@ -127,16 +131,20 @@ def routing_model(nodes: list[str], edges: list[tuple[str, str]], source: str, t
     return Model(
         kind="routing",
         parameters=tuple((f"node {index}", node) for index, node in enumerate(graph.nodes, 1)) +
-                   (("source", source), ("destination", target)),
+                   (("source", source), ("destination", target)) +
+                   tuple((f"cost {ids[a]} ↔ {ids[b]}", f"{cost:.15g}") for (a, b), cost in graph.costs().items()),
         variables=variables, constraints=tuple(constraints),
-        objective="Minimize the number of connections",
-        objective_expression="min " + (" + ".join(variable.symbol for variable in variables) or "0"),
-        objective_explanation="Each selected arc costs one hop. Minimize their sum. Positive unit costs exclude cycles from an optimal route.",
-        assumptions=("One source and one destination; all connections are undirected and have equal unit cost.",
+        objective="Minimize total route cost" if weighted else "Minimize the number of connections",
+        objective_expression="min " + (" + ".join(f"{costs[frozenset((a, b))]:.15g} · {_arc_symbol(a, b, ids)}" for a, b in arcs) or "0"),
+        objective_explanation=("Multiply each selected arc by its connection cost and minimize their sum. Costs use one consistent unit. Zero-cost cycles may tie in the flow model; the solver returns a simple route without cycles."
+                               if weighted else "Each selected arc costs one hop. Minimize their sum. Positive unit costs exclude cycles from an optimal route."),
+        assumptions=("One source and one destination; connections work both ways with the same non-negative cost." if weighted else
+                     "One source and one destination; all connections are undirected and have equal unit cost.",
                      "Each undirected connection becomes two directed binary arc variables. A value of 1 selects that direction.",
-                     "Weighted costs, one-way links, capacities, and multiple simultaneous routes are not supported."),
+                     "One-way links, negative costs, capacities, and multiple simultaneous routes are not supported."),
         supported=True,
-        support_note="Supported by the existing BFS traversal. Its discovery tree gives a minimum-hop route in an unweighted graph.",
+        support_note=("Supported by Dijkstra's algorithm in the shared graph module. It minimizes total cost, which may require more connections."
+                      if weighted else "Supported by the existing BFS traversal. Its discovery tree gives a minimum-hop route in an unweighted graph."),
         problem=graph, source=source, target=target,
     )
 
@@ -159,14 +167,12 @@ def _solve_scheduling(model: Model) -> Solution:
 
 def _solve_routing(model: Model) -> Solution:
     graph = model.problem
-    traversal = traverse(graph, model.source, "BFS")
-    if model.target not in traversal.order:
-        return Solution("infeasible", "BFS exhausted the source's connected component without reaching the destination. No route satisfies the flow constraints.", traversal=traversal)
-    parents = {child: parent for parent, child in traversal.steps[-1].tree_edges}
-    path = [model.target]
-    while path[-1] != model.source:
-        path.append(parents[path[-1]])
-    path.reverse()
+    weighted = graph.weights is not None
+    method = "Dijkstra" if weighted else "BFS"
+    traversal = traverse(graph, model.source, method)
+    path = route_to(traversal, model.target)
+    if not path:
+        return Solution("infeasible", f"{model.target} is disconnected from {model.source}. {method} exhausted all reachable locations without finding a route. Add a connection or choose another destination; no total cost is reported.", traversal=traversal)
     chosen = set(zip(path, path[1:]))
     ids = {node: index for index, node in enumerate(graph.nodes, 1)}
     arcs = [(a, b) for edge in graph.edges for a, b in (edge, edge[::-1])]
@@ -177,9 +183,15 @@ def _solve_routing(model: Model) -> Solution:
         expected = 1 if node == model.source else -1 if node == model.target else 0
         if balance != expected:
             raise RuntimeError("The route failed flow conservation verification.")
-    return Solution("solved", "BFS explores nodes in increasing hop distance. This route follows its discovery tree to the destination, so no route with fewer connections exists. Every selected arc is an existing connection, and all node flow balances were verified.",
+    costs = {frozenset(edge): cost for edge, cost in graph.costs().items()}
+    total = fsum(costs[frozenset(edge)] for edge in chosen)
+    if weighted and not isclose(total, dict(traversal.steps[-1].distances)[model.target]):
+        raise RuntimeError("The route cost failed verification.")
+    explanation = ("Dijkstra settles the location with the smallest tentative cost and improves costs to its neighbors. With non-negative costs, settled distances are final, so no cheaper route exists. Equal-cost alternatives may exist."
+                   if weighted else "BFS explores nodes in increasing hop distance, so no route with fewer connections exists.")
+    return Solution("solved", explanation + " Every selected connection, the total cost, and all node flow balances were verified.",
                     values=tuple((_arc_symbol(a, b, ids), int((a, b) in chosen)) for a, b in arcs),
-                    route=tuple(path), objective_value=len(path) - 1, traversal=traversal)
+                    route=path, objective_value=total, traversal=traversal)
 
 
 def input_lines(value: str) -> list[str]:
@@ -200,13 +212,15 @@ PROBLEM_TYPES = {
     ),
     "routing": ProblemType(
         label="Network routing",
-        description="Find a route between places or system nodes using the fewest connections. Connections must be two-way and have equal cost; distance, travel time, and capacity are not represented.",
-        input_defaults={"nodes": "", "edges": [], "source": None, "target": None},
+        description="Find the lowest-cost route between locations. Enter two-way connections and a cost for each: distance, travel time, or expense, using the same unit throughout.",
+        input_defaults={"nodes": "", "edges": [], "weights": {}, "source": None, "target": None},
         example={"nodes": "Depot\nJunction\nHarbour\nAirport",
-                 "edges": [("Depot", "Junction"), ("Depot", "Harbour"), ("Junction", "Airport"), ("Harbour", "Airport")],
+                 "edges": [("Depot", "Junction"), ("Depot", "Harbour"), ("Depot", "Airport"), ("Junction", "Airport"), ("Harbour", "Airport")],
+                 "weights": {("Depot", "Junction"): 3.0, ("Depot", "Harbour"): 1.0, ("Depot", "Airport"): 12.0,
+                             ("Junction", "Airport"): 2.0, ("Harbour", "Airport"): 7.0},
                  "source": "Depot", "target": "Airport"},
-        build_model=lambda data: routing_model(input_lines(data["nodes"]), data["edges"], data["source"], data["target"]),
-        solve=_solve_routing, solver_name="Breadth-first search — minimum-hop routes",
+        build_model=lambda data: routing_model(input_lines(data["nodes"]), data["edges"], data["source"], data["target"], data["weights"]),
+        solve=_solve_routing, solver_name="Dijkstra — minimum total cost with non-negative connections",
         inspector="graphs", inspector_label="Visualize in Graph Explorer ↗",
     ),
 }
