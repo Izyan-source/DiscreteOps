@@ -75,6 +75,9 @@ class ProblemType:
     solver_name: str
     inspector: str | None = None
     inspector_label: str = "Inspect result"
+    input_guidance: str = "Enter the structured inputs required by this model."
+    example_context: str = ""
+    revision_hint: str = "Revise the structured inputs above, rebuild the model, and solve again."
 
 
 def scheduling_model(tasks: list[str], slots: list[str], conflicts: list[tuple[str, str]],
@@ -202,7 +205,7 @@ def _solve_routing(model: Model) -> Solution:
                    if weighted else "BFS explores nodes in increasing hop distance, so no route with fewer connections exists.")
     return Solution("solved", explanation + " Every selected connection, the total cost, and all node flow balances were verified.",
                     values=tuple((_arc_symbol(a, b, ids), int((a, b) in chosen)) for a, b in arcs),
-                    route=path, objective_value=total, traversal=traversal)
+                    route=path, objective_value=total, traversal=traversal, optimal=True)
 
 
 def allocation_model(resources: list[str], tasks: list[str], capacities: dict[str, int],
@@ -292,6 +295,9 @@ PROBLEM_TYPES = {
         solve=_solve_scheduling,
         solver_name="Backtracking — valid schedules only; slot minimization is model-only",
         inspector="workbench", inspector_label="Inspect in Workbench ↗",
+        input_guidance="Provide tasks, distinct non-overlapping slots, and every pair that must stay apart. An empty conflict list means all tasks may share a slot.",
+        example_context="Plan a team review, build session, and demo across two periods. The demo cannot run alongside either other activity.",
+        revision_hint="Review conflict pairs and available slots. Add a slot or remove a conflict only if the real-world rules allow it. Slot minimization, durations, and deadlines need a different model.",
     ),
     "routing": ProblemType(
         label="Network routing",
@@ -305,6 +311,9 @@ PROBLEM_TYPES = {
         build_model=lambda data: routing_model(input_lines(data["nodes"]), data["edges"], data["source"], data["target"], data["weights"]),
         solve=_solve_routing, solver_name="Dijkstra — minimum total cost with non-negative connections",
         inspector="graphs", inspector_label="Visualize in Graph Explorer ↗",
+        input_guidance="Provide at least two locations, two-way connections with costs in one unit, and different start and destination locations. No connections is valid input but gives no route.",
+        example_context="Choose a route from a depot to an airport using travel costs. Compare a direct connection with routes through a junction or harbour.",
+        revision_hint="Review the start, destination, connections, and costs. A disconnected destination needs a real connecting link or a different endpoint; directed or capacity-constrained routes require an unsupported model.",
     ),
     "allocation": ProblemType(
         label="Resource allocation",
@@ -322,6 +331,9 @@ PROBLEM_TYPES = {
                                                   data["capacities"], data["requirements"], data["eligible_resources"],
                                                   data.get("allocation_goal", "feasible"), data.get("allocation_costs")),
         solve=_solve_allocation, solver_name="Exact branch and bound — feasibility or minimum total allocation cost",
+        input_guidance="Provide resources and capacities, tasks and whole-unit requirements, and eligible resources for each task. Minimizing cost also requires a cost for every eligible assignment.",
+        example_context="Assign installation, inspection, documentation, and handover work to two teams with limited work hours. Optional assignment costs let you compare feasible allocations.",
+        revision_hint="Review capacities, requirements, and eligibility together. Change them only to reflect real availability. For missing costs, enter every eligible assignment cost or explicitly choose feasibility; tasks cannot be split or scheduled here.",
     ),
 }
 

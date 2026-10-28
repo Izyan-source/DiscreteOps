@@ -6,7 +6,7 @@ from itertools import combinations
 
 import streamlit as st
 
-from explanations import explain_model, render_explanation
+from explanations import explain_model, render_explanation, solution_status
 from allocation_solver import MAX_COST, MAX_RESOURCES, MAX_TASKS as MAX_ALLOCATION_TASKS, MAX_UNITS, validate_names
 from graph_algorithms import MAX_NODES
 from graph_explorer import graph_markup, render_edge_costs
@@ -73,7 +73,8 @@ def _load_example() -> None:
     definition = next((item for item in PROBLEM_TYPES.values() if item.label == data["kind"]), None)
     if definition is None:
         return
-    values = deepcopy(definition.example)
+    # Examples must be reproducible even after an unsupported/custom objective.
+    values = deepcopy({**definition.input_defaults, **definition.example})
     data.update(values)
     for field, value in values.items():
         st.session_state[f"_ps_{field}"] = value
@@ -82,6 +83,28 @@ def _load_example() -> None:
 
 def _heading(number: str, title: str) -> None:
     st.html(f'<div class="wb-step"><span>{number}</span><h2>{title}</h2></div>')
+
+
+def _choose_category(slug: str) -> None:
+    st.session_state["_ps_kind"] = PROBLEM_TYPES[slug].label
+    _save("kind")
+
+
+def _supported_alternatives() -> None:
+    st.write("Choose the closest supported decision below only if its rules fit. "
+             "Your description is not automatically matched or simplified; requirements outside these scopes remain unsolved.")
+    for slug, definition in PROBLEM_TYPES.items():
+        if slug not in INPUT_RENDERERS:
+            continue
+        st.markdown(f"**{definition.label}**")
+        st.write(definition.description)
+        st.caption(definition.input_guidance)
+        st.button(f"Use {definition.label}", key=f"ps_choose_{slug}", on_click=_choose_category, args=(slug,))
+
+
+def _revise() -> None:
+    _invalidate_inputs()
+    _state()["notice"] = "Your inputs and description are kept. Edit the structured inputs above, then build and solve the revised model."
 
 
 def _pair_editor(field: str, names: list[str], maximum: int, label: str) -> None:
@@ -98,7 +121,7 @@ def _pair_editor(field: str, names: list[str], maximum: int, label: str) -> None
 
 
 def _scheduling_inputs(data: dict) -> None:
-    _heading("01", "What needs a place?")
+    _heading("3.1", "What needs a place?")
     tasks, slots = st.columns(2, gap="large")
     with tasks:
         st.text_area("Tasks · one per line", key="_ps_tasks", height=145, max_chars=4000,
@@ -108,11 +131,11 @@ def _scheduling_inputs(data: dict) -> None:
         st.text_area("Time slots · one per line", key="_ps_slots", height=145, max_chars=2000,
                      placeholder="Morning\nAfternoon", on_change=_save, args=("slots",),
                      help=f"Up to {MAX_SLOTS} distinct, non-overlapping time slots.")
-    _heading("02", "What must stay apart?")
+    _heading("3.2", "What must stay apart?")
     names = _lines(data["tasks"])
     _pair_editor("conflicts", names, MAX_TASKS, "Tasks that cannot share a slot")
     st.caption("Each task occupies one slot. Tasks may run together unless a conflict is selected. Durations, deadlines, ordering, and capacity are not modelled.")
-    _heading("03", "What counts as success?")
+    _heading("3.3", "What counts as success?")
     st.selectbox("Scheduling objective", list(GOALS), format_func=GOALS.get, key="_ps_goal",
                  on_change=_save, args=("goal",))
     if data["goal"] == "fewest_slots":
@@ -120,7 +143,7 @@ def _scheduling_inputs(data: dict) -> None:
 
 
 def _routing_inputs(data: dict) -> None:
-    _heading("01", "Define the network.")
+    _heading("3.1", "Define the network.")
     nodes, edges = st.columns([1, 1.5], gap="large")
     with nodes:
         st.text_area("Locations · one per line", key="_ps_nodes", height=145, max_chars=1000,
@@ -130,14 +153,14 @@ def _routing_inputs(data: dict) -> None:
         _pair_editor("edges", _lines(data["nodes"]), MAX_NODES, "Two-way connections")
         st.caption("Connections have the same cost in both directions. Isolated locations are allowed; they can make a route impossible.")
     render_edge_costs(data, "_ps_", _invalidate_inputs)
-    _heading("02", "Where should the route go?")
+    _heading("3.2", "Where should the route go?")
     source, target = st.columns(2, gap="large")
     names = list(dict.fromkeys(_lines(data["nodes"])))
     with source:
         st.selectbox("Start", names, key="_ps_source", disabled=not names, on_change=_save, args=("source",))
     with target:
         st.selectbox("Destination", names, key="_ps_target", disabled=not names, on_change=_save, args=("target",))
-    _heading("03", "Find the lowest total cost.")
+    _heading("3.3", "Find the lowest total cost.")
     st.caption("Minimize the sum of connection costs between two different locations. Costs must be finite, from 0 to 1 trillion. One-way links, negative costs, capacities, and multiple routes are unsupported. No costs are inferred from location names.")
 
 
@@ -154,7 +177,7 @@ def _allocation_quantity(data: dict, field: str, name: str, label: str, minimum:
 
 
 def _allocation_inputs(data: dict) -> None:
-    _heading("01", "Resources meet requirements.")
+    _heading("3.1", "Resources meet requirements.")
     resources_column, tasks_column = st.columns(2, gap="large")
     with resources_column:
         st.text_area("Resources · one per line", key="_ps_allocation_resources", height=140, max_chars=1000,
@@ -175,13 +198,13 @@ def _allocation_inputs(data: dict) -> None:
     previous = data["eligible_resources"]
     data["eligible_resources"] = {name: [resource for resource in previous.get(name, resources) if resource in resources]
                                   for name in tasks}
-    _heading("02", "How much is available?")
+    _heading("3.2", "How much is available?")
     st.caption("New resources start with capacity 0. Enter available units for each resource.")
     columns = st.columns(2)
     for index, name in enumerate(resources):
         with columns[index % 2]:
             _allocation_quantity(data, "capacities", name, f"{name} · capacity", 0)
-    _heading("03", "What does each task need?")
+    _heading("3.3", "What does each task need?")
     st.caption("New tasks start with requirement 1 and all current resources eligible. Review both values. An empty eligible set makes that task impossible to assign.")
     for name in tasks:
         demand, eligible = st.columns([1, 2], gap="large")
@@ -192,7 +215,7 @@ def _allocation_inputs(data: dict) -> None:
             st.session_state[key] = data["eligible_resources"][name]
             st.multiselect(f"{name} · eligible resources", resources, key=key,
                            on_change=_save_allocation_value, args=("eligible_resources", name, key))
-    _heading("04", "What counts as success?")
+    _heading("3.4", "What counts as success?")
     st.selectbox("Allocation objective", ("feasible", "min_cost"), key="_ps_allocation_goal",
                  format_func=lambda value: "Find a feasible allocation" if value == "feasible" else "Minimize total allocation cost",
                  on_change=_save, args=("allocation_goal",))
@@ -264,8 +287,7 @@ def _render_model(model: Model) -> None:
 def _render_solution(solution: Solution, model: Model) -> None:
     st.html('<div class="ps-result-label"><span class="eyebrow">SOLVER RESULT</span></div>')
     if solution.status != "solved":
-        label = {"infeasible": "No feasible solution", "limit": "Search limit · inconclusive", "unsupported": "Solving is unsupported"}[solution.status]
-        st.warning(label + ". " + solution.explanation)
+        st.warning(solution_status(solution) + ". " + solution.explanation)
         for issue in solution.diagnostics:
             st.write(issue)
         if model.kind == "routing":
@@ -273,9 +295,9 @@ def _render_solution(solution: Solution, model: Model) -> None:
         render_explanation(explain_model(model, solution))
         return
     if solution.optimal is False:
-        st.warning("Feasible allocation · optimality not proven (search limit)")
+        st.warning(solution_status(solution))
     else:
-        st.success("Optimal allocation · minimum cost proven" if solution.optimal is True else "Verified solution for the structured model")
+        st.success(solution_status(solution))
     if solution.schedule:
         st.dataframe([{"Task": task, "Assigned slot": slot} for task, slot in solution.schedule],
                      hide_index=True, width="stretch")
@@ -321,11 +343,13 @@ def render_problem_studio_content() -> None:
     st.html('<section class="ps-intro"><p class="eyebrow">PROBLEM STUDIO / START HERE</p>'
             '<h1>Give the problem<br><em>a precise shape.</em></h1>'
             '<p>Describe the decision you need to make. Choose a supported problem type, structure the data, and follow the model through to an explained result.</p></section>')
-    st.caption("Your workflow: problem → mathematical model → solver → visual inspection → explanation")
+    st.caption("01 Describe → 02 Choose category → 03 Structure inputs → 04 Review model → 05 Solve → 06 Inspect & revise")
+    _heading("01", "Describe the decision.")
     st.text_area("Describe your problem (optional)", key="_ps_description", height=100, max_chars=2000,
                  placeholder="What decision are you trying to make, and what matters for a useful result?",
                  on_change=_save, args=("description",))
     st.caption("Your description is saved as context only. It is not interpreted automatically. Solvers use only the structured inputs and rules below.")
+    _heading("02", "Choose the problem category.")
     labels = {definition.label: slug for slug, definition in PROBLEM_TYPES.items()}
     kind, sample = st.columns([2, 1], vertical_alignment="bottom")
     with kind:
@@ -342,20 +366,26 @@ def render_problem_studio_content() -> None:
     candidate = None
     if definition and render_inputs:
         st.write(definition.description)
+        st.caption(definition.input_guidance)
         st.caption(f"Type solver: {definition.solver_name}")
+        if definition.example_context:
+            st.caption("Example scenario: " + definition.example_context + " Load example replaces this category's inputs; your description and other category drafts stay intact.")
+        _heading("03", "Structure your inputs.")
         with st.container(key="ps_inputs"):
             render_inputs(data)
         try:
             candidate = definition.build_model(data)
         except ValueError as exc:
-            if any(data[field] != default for field, default in definition.input_defaults.items()):
-                st.warning(str(exc))
-            else:
-                st.caption("Enter structured data, or load an example, to build the model.")
+            st.warning("Before building the model: " + str(exc))
+            st.caption("Complete or correct these inputs, or load the example to see a complete formulation. No solver has run for this draft.")
     elif data["kind"] is None:
         st.info("Choose a supported type to see its data requirements and solver. You can start with the form or keep a description as context.")
     else:
         st.warning("This problem type is not supported. You can keep your description, but no model or solution will be generated. Choose a supported type only if its stated assumptions fit your problem.")
+        _supported_alternatives()
+    if definition:
+        _heading("04", "Review the model and assumptions.")
+        st.caption("Build from the current inputs, then review Variables, Constraints, Objective, and modelling assumptions before solving. Rules mentioned only in your description are not included.")
     if st.button("Build model ↗", key="ps_build", type="primary", disabled=candidate is None):
         data.update(model=candidate, solution=None, dirty=False)
     if data["dirty"] and definition:
@@ -363,13 +393,21 @@ def render_problem_studio_content() -> None:
     model = data["model"]
     if definition and model is not None and model == candidate:
         _render_model(model)
+        _heading("05", "Solve the structured problem.")
         if st.button("Solve this model ↗", key="ps_solve", type="primary", disabled=not model.supported):
             with st.spinner("Running the existing solver and checking the result…"):
                 data["solution"] = solve_model(model)
         if data["solution"] is not None:
+            _heading("06", "Inspect the result and revise.")
+            if data["description"].strip():
+                with st.expander("Your real-world context"):
+                    st.text(data["description"])
+                    st.caption("The result below applies only to the structured model. Check that its assumptions cover your real decision; prose is not an additional constraint.")
             _render_solution(data["solution"], model)
+            st.caption("To revise: " + definition.revision_hint)
         if definition.inspector:
             st.button(definition.inspector_label, key="ps_inspect", on_click=_inspect, args=(model, data["solution"]), disabled=not model.supported)
             st.caption("Continue with these inputs and the same recorded solver run, when available. Your existing inspection-page draft is kept; edits made there return to this Studio problem.")
+        st.button("Revise inputs ↺", key="ps_revise", on_click=_revise)
     elif definition and not data["dirty"]:
         st.html('<div class="ps-empty">A model you can read.<br><span>Build your model to inspect every decision and rule before solving.</span></div>')

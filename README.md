@@ -26,7 +26,8 @@ Open http://localhost:8501. On Windows, activate the environment with `.venv\Scr
 - `graph_algorithms.py`: Streamlit-independent graph/cost validation and recorded BFS, DFS, and Dijkstra searches.
 - `problem_studio.py`: shared problem intake, type-specific forms, and model/solution inspection.
 - `problem_models.py`: the problem-type registry, model builders, and adapters to existing solvers, independent of Streamlit.
-- `workflow.py`: contextual method explanations and session handoffs that preserve existing inspection-page drafts.
+- `workflow.py`: session handoffs that preserve existing inspection-page drafts.
+- `explanations.py`: shared model explanations, outcome labels, and relevant syllabus concepts.
 - `assets/styles.css`: shared palette, typography, responsive layout, and subtle motion.
 - `assets/experience.html`: a self-contained canvas component for the scroll narrative and visual lab.
 - `.streamlit/config.toml`: base Streamlit theme.
@@ -36,6 +37,12 @@ Explore progresses from points to connections to an illustrative constrained spa
 ## Problem Studio
 
 Start with an optional problem description, or go directly to structured input. New sessions have no problem type preselected. Choose **Task scheduling**, **Network routing**, or **Resource allocation**, review its scope and available solver, enter data through the numbered form (or load an example), then **Build model**. Inspect the Variables, Constraints, and Objective tabs, along with the input-symbol mapping and assumptions. Building a model does not solve it. **Solve this model** runs only supported formulations; structured-input edits clear stale models and results.
+
+The shared flow has six visible stages: **Describe → Choose category → Structure inputs → Review model → Solve → Inspect & revise**. Each category supplies its input requirements and a real-world example scenario through the registry. Validation reports the model builder's specific missing or invalid inputs, including on an empty draft. Examples replace only the selected category's inputs and reset its objective to the example default; they retain your description and other category drafts. All example results are computed on demand.
+
+**Other / not supported yet** offers explicit links to the supported formulations and explains their scope and required data. Choosing an alternative does not translate your prose or imply that omitted requirements are solved. After a run, **Revise inputs** clears the model and result while preserving the data, so you can edit, rebuild, and solve again. Category-specific revision hints identify what can be changed within the supported model. Drafts and results persist within the current Streamlit session, not across server restarts or new browser sessions.
+
+Result labels distinguish **Feasible**, **Proven optimum**, **Infeasible**, and **Inconclusive**. Routing sets its optimality flag only after the existing BFS/Dijkstra adapter has reconstructed and verified the shortest route. Allocation keeps its existing exact-search optimality flag; a limited search with a complete incumbent is feasible but not proven optimal. Scheduling remains feasibility-only. The existing model inspector and solution explanation accompany these labels; the real-world description remains context, not extra solver constraints.
 
 Descriptions are saved as context only. They are not parsed, classified, or converted into constraints; every supported rule must be entered in the form. Changing the description alone does not change the mathematical model. Choose **Other / not supported yet** when the current assumptions do not fit: the description remains available, while model building and solving are unavailable. Results explicitly apply to the structured model, not every requirement mentioned in prose.
 
@@ -84,7 +91,7 @@ Focused Studio checks: `python -m unittest discover -s tests -p 'test_problem_st
 
 ### Extending supported problem types
 
-`PROBLEM_TYPES` in `problem_models.py` is the central registry. Each entry defines its label/scope, input defaults, example, model builder, solver adapter, solver name, and optional existing inspection tool. `solve_model` dispatches by the exact registered model kind and returns `unsupported` for unknown kinds; it never falls through to scheduling or routing.
+`PROBLEM_TYPES` in `problem_models.py` is the central registry. Each entry defines its label/scope, input defaults, example, model builder, solver adapter, solver name, and optional existing inspection tool. Optional `input_guidance`, `example_context`, and `revision_hint` fields supply the same intake and revision UI for every category. `solve_model` dispatches by the exact registered model kind and returns `unsupported` for unknown kinds; it never falls through to scheduling or routing.
 
 To add a supported formulation, supply its validated builder and solver adapter returning the common `Model`/`Solution` structures, register a `ProblemType` under that model's kind, and add its field renderer to `INPUT_RENDERERS` in `problem_studio.py`. Use distinct input field names for independent drafts. Renderers draw domain inputs; the shared Studio flow handles state, examples, validation messages, model inspection, support status, solving, explanations, and variable values. Optional schedule/route presentation is retained for those types; other results can provide reusable `ResultTable` data, diagnostics, variable values, and explanations. No new page or copied orchestration is needed. Only declare a Workbench/Graph Explorer handoff when the adapter supplies that existing tool's `Problem`/`Graph` and trace contract; otherwise leave it unset.
 

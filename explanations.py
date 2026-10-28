@@ -25,6 +25,19 @@ class Explanation:
     concepts: tuple[tuple[str, str], ...]
 
 
+def solution_status(solution: Solution) -> str:
+    """One result vocabulary, based on the adapter's verified outcome."""
+    if solution.status != "solved":
+        return {"infeasible": "Infeasible · no feasible solution",
+                "limit": "Inconclusive · search limit",
+                "unsupported": "Unsupported · model only"}[solution.status]
+    if solution.optimal is False:
+        return "Feasible · optimality not proven (search limit)"
+    if solution.optimal is True:
+        return "Proven optimum · minimum cost proven"
+    return "Feasible · all model constraints satisfied; no optimality claim"
+
+
 def method_notes(model: Model) -> dict[str, str]:
     """Name only specific concepts actually present; do not infer unit coverage."""
     if model.kind not in ("scheduling", "routing", "allocation"):
