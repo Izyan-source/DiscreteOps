@@ -84,3 +84,42 @@ button:focus-visible { outline:2px solid #8c9b64!important; outline-offset:4px; 
 .wb-search-stats { display:flex; gap:12px 24px; flex-wrap:wrap; border-top:1px solid var(--line); padding-top:18px; margin:15px 0; color:#6d795f; font-size:9px; }
 .st-key-workbench_page .site-footer { margin-top:40px; }
 @media (max-width:640px) { .wb-rule { grid-template-columns:1fr; gap:8px; } .wb-slot { grid-template-columns:1fr; gap:12px; } .wb-result-heading h2 { font-size:30px; } .st-key-workbench_page { padding-top:30px; } }
+
+/* Graph Explorer: native controls and a data-driven SVG, scoped to this page. */
+.st-key-graph_page { max-width:1240px; padding:38px clamp(24px,4vw,64px) 32px; margin:auto; }
+.st-key-graph_page [data-testid="stVerticalBlock"] { gap:14px; }
+.ge-intro h1 { font-size:clamp(40px,4.8vw,66px); font-weight:500; line-height:1.08; letter-spacing:-.055em; margin:18px 0; padding:0; }
+.ge-intro > p:last-child { max-width:620px; font-size:14px; color:var(--muted); line-height:1.75; margin:0 0 22px; }
+.st-key-gx_examples { max-width:560px; margin-bottom:14px; }
+.st-key-graph_page [data-testid="stExpander"] { margin-bottom:10px; }
+.st-key-graph_page [data-testid="stWidgetLabel"] p { font-size:12px; color:#525b49; }
+.st-key-graph_page textarea { background:#eeeee4; border-radius:2px; font-size:14px; line-height:1.8; }
+.st-key-graph_page button, .st-key-graph_page details { border-radius:2px; }
+.st-key-graph_page [data-baseweb="tag"] { height:auto; max-width:100%; padding:5px 6px; }
+.st-key-graph_page [data-baseweb="tag"] > span[title] { max-width:none; min-width:0; white-space:normal; overflow-wrap:anywhere; }
+.st-key-graph_page button[kind="primary"] { background:#293124; border-color:#293124; color:#f3f5ea; min-height:42px; }
+.st-key-graph_page button[kind="primary"]:hover { background:#46513a; border-color:#46513a; }
+.st-key-graph_page button[kind="primary"]:disabled { background:#d9ddce; border-color:#d9ddce; color:#7d8473; }
+.st-key-gx_stage { border-top:1px solid var(--line); padding-top:24px; margin-top:12px; }
+.ge-legend { display:flex; flex-wrap:wrap; gap:12px 18px; padding-top:14px; color:#65705a; font-size:10px; }
+.ge-legend span { display:flex; align-items:center; gap:6px; }
+.ge-legend i { width:9px; height:9px; border-radius:50%; display:inline-block; }
+.ge-key-current { background:#293124; }
+.ge-key-visited { background:#dce5cc; border:1px solid #7f9465; }
+.ge-key-frontier { border:1px dashed #7f9465; }
+.ge-key-unseen { border:1px solid #bac1ae; }
+.ge-step-note h2 { padding:0; margin:16px 0; font-size:clamp(27px,2.6vw,38px); line-height:1.12; font-weight:500; letter-spacing:-1.2px; overflow-wrap:anywhere; }
+.ge-step-note p { color:#606b55; font-size:13px; line-height:1.9; overflow-wrap:anywhere; }
+.ge-frontier { border-top:1px solid var(--line); margin-top:20px; padding-top:16px; }
+.ge-tokens { display:flex; flex-wrap:wrap; gap:7px; margin-top:12px; }
+.ge-token { background:#e5e9db; color:#3e4d33; font-size:12px; padding:7px 10px; overflow-wrap:anywhere; max-width:100%; }
+.ge-token b { font:10px "SFMono-Regular",Consolas,monospace; margin-right:9px; color:#798969; }
+.ge-muted { font-size:12px; color:#7a8271; }
+.ge-method-note { border-top:1px solid var(--line); padding-top:18px; margin-top:20px; }
+.ge-method-note strong { font-size:12px; font-weight:500; }
+.ge-method-note p { font-size:11px; line-height:1.8; color:#7a8271; margin:8px 0 0; }
+.ge-order { border-top:1px solid var(--line); padding-top:24px; margin-top:12px; }
+.ge-empty { padding:40px 0; font-size:23px; color:#555f49; line-height:1.8; }
+.ge-empty span { font-size:12px; color:#838b79; }
+.st-key-graph_page .site-footer { margin-top:40px; }
+@media (max-width:640px) { .st-key-graph_page { padding-top:28px; } .ge-intro h1 { font-size:42px; } }

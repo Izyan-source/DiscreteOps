@@ -6,6 +6,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from workbench import render_workbench_content
+from graph_explorer import render_graph_explorer_content
 
 
 ASSETS = Path(__file__).parent / "assets"
@@ -57,6 +58,13 @@ def render_workbench() -> None:
         footer()
 
 
+def render_graph_explorer() -> None:
+    masthead("GRAPH EXPLORER", "FOLLOW THE CONNECTIONS, STEP BY STEP")
+    with st.container(key="graph_page"):
+        render_graph_explorer_content()
+        footer()
+
+
 def render_about() -> None:
     masthead("ABOUT", "THE THINKING BEHIND THE SPACE")
     with st.container(key="product_page"):
@@ -80,6 +88,7 @@ def footer() -> None:
 PAGES = {
     "explore": ("Explore", render_home),
     "workbench": ("Workbench", render_workbench),
+    "graphs": ("Graph Explorer", render_graph_explorer),
     "visualizations": ("Visualizations", render_visualizations),
     "about": ("About", render_about),
 }

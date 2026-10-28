@@ -1,6 +1,6 @@
 # DiscreteOps
 
-A Python and Streamlit interface for discrete mathematics and optimization. Product navigation leads to Explore, Workbench, Visualizations, and About. The landing page is an interactive visual story; the Constraint Workbench builds real schedules with backtracking.
+A Python and Streamlit interface for discrete mathematics and optimization. Product navigation leads to Explore, Workbench, Graph Explorer, Visualizations, and About. The landing page is an interactive visual story; the Constraint Workbench builds real schedules with backtracking.
 
 ## Run locally
 
@@ -21,11 +21,21 @@ Open http://localhost:8501. On Windows, activate the environment with `.venv\Scr
 - `ui.py`: product navigation and reusable presentation functions.
 - `workbench.py`: editable scheduling inputs, examples, results, and constraint explanations.
 - `solver.py`: Streamlit-independent input validation, backtracking, and schedule verification.
+- `graph_explorer.py`: graph editing, examples, SVG visualization, and interactive traversal steps.
+- `graph_algorithms.py`: Streamlit-independent graph validation and recorded BFS/DFS traversals.
 - `assets/styles.css`: shared palette, typography, responsive layout, and subtle motion.
 - `assets/experience.html`: a self-contained canvas component for the scroll narrative and visual lab.
 - `.streamlit/config.toml`: base Streamlit theme.
 
 Explore progresses from points to connections to an illustrative constrained space. Scroll within the experience or use its three chapter buttons; Visualizations exposes the same scene with a scrubber. The highlighted choice and boundaries in these visual studies are authored drawing positions, not computed solutions.
+
+## Graph Explorer
+
+Open **Graph Explorer** in the sidebar. A sample graph is preloaded; use **Edit nodes & connections** to create your own, or load the branching, disconnected, or blank example. Graphs are undirected and unweighted, with up to 16 uniquely named nodes (24 characters each). Select pairs to add connections; isolated nodes and cycles are supported.
+
+Choose a starting node and BFS or DFS, then click **Run traversal**. Use Previous, Next, the step slider, or Show result to inspect actual algorithm snapshots. The graph highlights the current node, visited nodes, discovery edges, and the queue or active DFS path. Numbers mark first-visit order. Explanations describe every visit and DFS return; unreachable nodes are identified at completion. Both algorithms explore only the starting node's connected component and break neighbor ties using node-list order.
+
+Editing the graph, start, or method clears the old traversal. Graphs and playback position persist across page navigation. The viewer uses native Streamlit controls and SVG images, with no new dependencies.
 
 ## Constraint Workbench
 
