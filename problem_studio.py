@@ -3,10 +3,13 @@
 from copy import deepcopy
 from html import escape
 from itertools import combinations
+import json
+import os
 
 import streamlit as st
 
 from explanations import explain_model, render_explanation, solution_status
+from ai_interpretation import DEFAULT_MODEL, InterpretationError, apply_proposal, interpret, parse_proposal, proposal_inputs
 from allocation_solver import MAX_COST, MAX_RESOURCES, MAX_TASKS as MAX_ALLOCATION_TASKS, MAX_UNITS, validate_names
 from graph_algorithms import MAX_NODES
 from graph_explorer import graph_markup, render_edge_costs
@@ -37,7 +40,8 @@ def _save(field: str) -> None:
     data = _state()
     data[field] = st.session_state[f"_ps_{field}"]
     if field == "description":
-        # Context is intentionally not interpreted as mathematical input.
+        st.session_state["_ai_reviewed"] = False
+        # Editing prose alone never changes a structured model or runs AI.
         return
     if field == "kind":
         # Remounted widgets must pick up the saved draft, not frontend defaults.
@@ -334,6 +338,95 @@ def _inspect(model: Model, solution: Solution | None) -> None:
     open_inspector(st.session_state, model, solution)
 
 
+def _ai_setting(name: str, default="") -> str:
+    value = os.environ.get(name)
+    if value is None:
+        try:
+            value = st.secrets.get(name, default)
+        except (FileNotFoundError, KeyError):
+            value = default
+    return value.strip() if isinstance(value, str) else default
+
+
+def _reset_ai_review() -> None:
+    st.session_state["_ai_reviewed"] = False
+
+
+def _edit_ai_proposal() -> None:
+    st.session_state["ai_proposal_text"] = st.session_state["_ai_proposal_editor"]
+    _reset_ai_review()
+
+
+def _accept_ai() -> None:
+    try:
+        if not st.session_state.get("_ai_reviewed"):
+            raise InterpretationError("Review the proposal before accepting it.")
+        apply_proposal(st.session_state, st.session_state["ai_proposal_text"], st.session_state["ai_source"])
+    except ValueError as exc:
+        st.session_state["ai_error"] = str(exc)
+    else:
+        for key in ("ai_proposal_text", "ai_source", "ai_error", "_ai_reviewed", "_ai_proposal_editor"):
+            st.session_state.pop(key, None)
+
+
+def _render_ai_intake(data: dict) -> None:
+    with st.expander("AI-assisted interpretation · optional"):
+        st.caption("Interpret with AI sends only this description to OpenAI. It proposes inputs, not solutions. "
+                   "Nothing is sent on typing or navigation. Review extracted facts and assumptions before loading them.")
+        key = _ai_setting("OPENAI_API_KEY")
+        if not key:
+            st.info("To enable AI, configure OPENAI_API_KEY in the server environment or .streamlit/secrets.toml. Manual entry remains available.")
+        if st.button("Interpret with AI", key="ai_interpret", disabled=not key or not data["description"].strip()):
+            for field in ("ai_proposal_text", "ai_source", "ai_error", "_ai_proposal_editor"):
+                st.session_state.pop(field, None)
+            _reset_ai_review()
+            try:
+                with st.spinner("Extracting a proposal for your review…"):
+                    proposal = interpret(data["description"], key, _ai_setting("DISCRETEOPS_AI_MODEL", DEFAULT_MODEL))
+                st.session_state["ai_proposal_text"] = json.dumps(proposal, indent=2, ensure_ascii=False)
+                st.session_state["ai_source"] = data["description"]
+            except InterpretationError as exc:
+                st.session_state["ai_error"] = str(exc)
+        if st.session_state.get("ai_error"):
+            st.error(st.session_state["ai_error"])
+    if "ai_proposal_text" not in st.session_state:
+        return
+    st.markdown("**AI proposal · not a solver result**")
+    stale = st.session_state.get("ai_source") != data["description"]
+    if stale:
+        st.warning("The description changed. Interpret it again; this earlier proposal cannot be accepted.")
+    with st.expander("Review / edit extracted inputs (JSON)"):
+        st.caption("Correct facts here, or clarify the description and interpret again. Resolve questions explicitly; "
+                   "do not remove an unsupported requirement merely to make the model solve. You can also enter inputs manually below.")
+        if "_ai_proposal_editor" not in st.session_state:
+            st.session_state["_ai_proposal_editor"] = st.session_state["ai_proposal_text"]
+        st.text_area("Proposed structured inputs", key="_ai_proposal_editor", height=300,
+                     max_chars=50000, on_change=_edit_ai_proposal)
+    ready = False
+    try:
+        proposal = parse_proposal(st.session_state["ai_proposal_text"])
+        st.text(proposal["summary"])
+        st.caption("Proposed category: " + proposal["category"])
+        for title, field in (("Assumptions to review", "assumptions"), ("Questions to resolve", "questions"),
+                             ("Unsupported requirements", "unsupported_requirements")):
+            if proposal[field]:
+                st.markdown(f"**{title}**")
+                for detail in proposal[field]:
+                    st.text("• " + detail)
+        _, model = proposal_inputs(proposal)
+        st.info("Proposed mathematical model, generated locally from these inputs. Review its variables, constraints, objective and assumptions; no solver has run for this proposal.")
+        _render_model(model)
+        ready = model.supported and not proposal["questions"] and not proposal["unsupported_requirements"]
+        if not ready:
+            st.warning("This proposal needs clarification or uses unsupported rules. Revise it before loading; the manual workflows remain available below.")
+    except ValueError as exc:
+        st.warning("Proposal needs attention: " + str(exc))
+    st.checkbox("I reviewed the extracted facts, objective and assumptions against my real problem.", key="_ai_reviewed")
+    st.button("Load reviewed proposal into Studio", key="ai_accept", on_click=_accept_ai,
+              disabled=stale or not ready or not st.session_state.get("_ai_reviewed"))
+    st.caption("Loading replaces only this category's inputs and clears its prior result. Other category drafts stay intact. Edit the form, build the model, then choose Solve explicitly.")
+
+
 def render_problem_studio_content() -> None:
     data = _state()
     fields = {"kind", "description"} | {field for item in PROBLEM_TYPES.values() for field in item.input_defaults}
@@ -348,7 +441,8 @@ def render_problem_studio_content() -> None:
     st.text_area("Describe your problem (optional)", key="_ps_description", height=100, max_chars=2000,
                  placeholder="What decision are you trying to make, and what matters for a useful result?",
                  on_change=_save, args=("description",))
-    st.caption("Your description is saved as context only. It is not interpreted automatically. Solvers use only the structured inputs and rules below.")
+    st.caption("Your description stays context unless you explicitly request AI interpretation and accept its reviewed inputs. Solvers use only the structured inputs and rules below.")
+    _render_ai_intake(data)
     _heading("02", "Choose the problem category.")
     labels = {definition.label: slug for slug, definition in PROBLEM_TYPES.items()}
     kind, sample = st.columns([2, 1], vertical_alignment="bottom")

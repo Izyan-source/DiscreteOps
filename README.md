@@ -25,6 +25,7 @@ Open http://localhost:8501. On Windows, activate the environment with `.venv\Scr
 - `graph_explorer.py`: graph editing, examples, SVG visualization, and interactive traversal steps.
 - `graph_algorithms.py`: Streamlit-independent graph/cost validation and recorded BFS, DFS, and Dijkstra searches.
 - `problem_studio.py`: shared problem intake, type-specific forms, and model/solution inspection.
+- `ai_interpretation.py`: optional OpenAI input extraction, strict local proposal validation, and explicit acceptance into the existing registry; never runs a solver.
 - `problem_models.py`: the problem-type registry, model builders, and adapters to existing solvers, independent of Streamlit.
 - `workflow.py`: session handoffs that preserve existing inspection-page drafts.
 - `explanations.py`: shared model explanations, outcome labels, and relevant syllabus concepts.
@@ -44,7 +45,28 @@ The shared flow has six visible stages: **Describe → Choose category → Struc
 
 Result labels distinguish **Feasible**, **Proven optimum**, **Infeasible**, and **Inconclusive**. Routing sets its optimality flag only after the existing BFS/Dijkstra adapter has reconstructed and verified the shortest route. Allocation keeps its existing exact-search optimality flag; a limited search with a complete incumbent is feasible but not proven optimal. Scheduling remains feasibility-only. The existing model inspector and solution explanation accompany these labels; the real-world description remains context, not extra solver constraints.
 
-Descriptions are saved as context only. They are not parsed, classified, or converted into constraints; every supported rule must be entered in the form. Changing the description alone does not change the mathematical model. Choose **Other / not supported yet** when the current assumptions do not fit: the description remains available, while model building and solving are unavailable. Results explicitly apply to the structured model, not every requirement mentioned in prose.
+Descriptions stay context unless you explicitly request AI interpretation and accept its proposed inputs as described below. Changing the description alone never changes the mathematical model or calls an API. Choose **Other / not supported yet** when the current assumptions do not fit: the description remains available, while model building and solving are unavailable. Results explicitly apply to the structured model, not every requirement mentioned in prose.
+
+### Optional AI interpretation
+
+The only added direct dependency is the official `openai` Python SDK. Install with `python -m pip install -r requirements.txt` in the project virtual environment. Manual workflows work without an API key, and report an actionable error if the SDK is missing when AI is requested.
+
+Configure `OPENAI_API_KEY` in the server environment, or add this locally to **`.streamlit/secrets.toml`** (already ignored by Git):
+
+```toml
+OPENAI_API_KEY = "replace-with-your-api-key"
+DISCRETEOPS_AI_MODEL = "gpt-4.1-mini"
+```
+
+`DISCRETEOPS_AI_MODEL` is optional and can also be an environment variable. Environment settings take precedence; `.env` files are not automatically loaded. Never commit a real key or put it in a UI field. Restart Streamlit after changing server configuration. The default [GPT-4.1 mini](https://developers.openai.com/api/docs/models/gpt-4.1-mini) supports the [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs) format used here; a replacement must support Responses API strict JSON-schema output.
+
+Open **AI-assisted interpretation**, then click **Interpret with AI** to send only the current description (up to 2,000 characters) to OpenAI. The request also includes the supported model scopes and extraction schema, but no saved drafts or solver results. It uses `store=False`, a 30-second timeout, and no automatic retries. This does not promise zero provider retention; provider data policies still apply. API usage requires account access and may incur charges.
+
+AI proposes a category, named entities, constraints, objective, assumptions, and questions. It has no tools and cannot run a solver. Decision variables and equations are derived locally by the same existing model builders used for manual inputs. Review the proposal, edit **Proposed structured inputs** JSON if necessary, and inspect the mathematical preview. Missing connection costs, capacities, requirements, eligibility, and optimization costs are not silently filled. Clarify the description and retry, or correct the proposal and explicitly resolve its questions. Unsupported requirements must not simply be dropped to make a problem fit; manual entry remains available for an independently chosen supported formulation.
+
+Loading requires a valid supported model, no unresolved questions or unsupported requirements, and explicit review acknowledgement. Changing the description makes the earlier proposal stale; editing the proposal clears acknowledgement. **Load reviewed proposal into Studio** replaces only that category's draft, preserves other drafts and the description, and clears any previous model/result. Edit in the existing form, **Build model**, then **Solve this model**. Only the existing scheduling, routing, and allocation algorithms generate results, including infeasibility or inconclusive outcomes. AI extraction can still misunderstand prose: schema validation is not semantic verification, so human review is required.
+
+Authentication, quota, connection/timeout, provider refusal, incomplete output, and malformed proposals have safe messages. Raw API errors and keys are not displayed or stored in session state. API failures do not alter structured inputs. Tests mock the provider (including SDK HTTP serialization); they do not spend API credits or establish live extraction quality. Run `python -m unittest discover -s tests -p 'test_ai_interpretation.py' -v` for focused checks.
 
 Continue with **Inspect in Workbench** or **Visualize in Graph Explorer**. These actions carry the current inputs and, when available, the exact recorded solver run into the existing view without recomputing it. The Workbench displays schedule lanes and the search audit; Graph Explorer replays Dijkstra's search behind weighted routing, including tentative/final costs. The search covers the reachable component; Studio highlights the selected route and displays its total cost and leg-by-leg breakdown. BFS/DFS remain available for connectivity exploration and ignore weights; they do not replace the weighted routing solver.
 
@@ -69,7 +91,7 @@ Only relevant methods are described as applied to each model. These mappings do 
 - Routing accepts locations, two-way connections, a non-negative cost per connection, and distinct start/destination locations. Costs can represent distance, time, or expense but must use one consistent unit; no real-world costs are inferred. New connections default to 1. Costs must be finite and between 0 and 1 trillion. The example contrasts a direct connection costing 12 with a two-leg route costing 5.
 - The routing model creates two binary arc variables per connection and flow conservation at every location (+1 at the start, −1 at the destination). Its objective is the sum of each selected arc's cost. Dijkstra runs once in `graph_algorithms.py`; the adapter reconstructs the recorded path and verifies connections, flow balances, and total cost. Zero-cost edges are supported; equal-cost alternatives may exist, and node-list order breaks ties. The solver returns a simple route even if the flow model allows zero-cost cycles. Disconnected destinations produce a clear infeasible result with no route or cost. Negative costs, directed links, capacities, and multiple simultaneous routes remain unsupported. The original unweighted Python model API still uses BFS.
 
-Existing input limits apply (24 tasks / 12 slots for scheduling; 16 nodes for routing). Unsupported objectives are never silently replaced with feasibility results. A search limit is reported as inconclusive, not infeasible. No AI services or new dependencies are used.
+Existing input limits apply (24 tasks / 12 slots for scheduling; 16 nodes for routing). Unsupported objectives are never silently replaced with feasibility results. A search limit is reported as inconclusive, not infeasible. Solving remains entirely local; only the optional interpretation step calls an AI service.
 
 ### Resource allocation
 
