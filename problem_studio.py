@@ -1,36 +1,46 @@
 """Guided Problem Studio UI. All modelling and solving stays in problem_models."""
 
+from copy import deepcopy
 from html import escape
 from itertools import combinations
 
 import streamlit as st
 
 from graph_algorithms import MAX_NODES
-from problem_models import Model, Solution, routing_model, scheduling_model, solve_model
+from problem_models import PROBLEM_TYPES, Model, Solution, input_lines as _lines, solve_model
 from solver import MAX_SLOTS, MAX_TASKS
 from workflow import SYLLABUS_AREAS, method_notes, open_inspector
 
 
 GOALS = {"feasible": "Find a valid schedule", "fewest_slots": "Minimize used slots · model only"}
-
-
-def _lines(value: str) -> list[str]:
-    return [line.strip() for line in value.splitlines() if line.strip()]
+UNSUPPORTED_CHOICE = "Other / not supported yet"
 
 
 def _state() -> dict:
     if "ps_data" not in st.session_state:
         st.session_state.ps_data = {
-            "kind": "Task scheduling", "tasks": "", "slots": "", "conflicts": [], "goal": "feasible",
-            "nodes": "", "edges": [], "source": None, "target": None,
+            "kind": None,
             "model": None, "solution": None, "dirty": False,
         }
-    return st.session_state.ps_data
+    data = st.session_state.ps_data
+    data.setdefault("description", "")
+    for definition in PROBLEM_TYPES.values():
+        for field, default in definition.input_defaults.items():
+            data.setdefault(field, deepcopy(default))
+    return data
 
 
 def _save(field: str) -> None:
     data = _state()
     data[field] = st.session_state[f"_ps_{field}"]
+    if field == "description":
+        # Context is intentionally not interpreted as mathematical input.
+        return
+    if field == "kind":
+        # Remounted widgets must pick up the saved draft, not frontend defaults.
+        for definition in PROBLEM_TYPES.values():
+            for input_field in definition.input_defaults:
+                st.session_state.pop(f"_ps_{input_field}", None)
     data["dirty"] = data["dirty"] or data["model"] is not None
     data.update(model=None, solution=None)
     if field in ("tasks", "nodes"):
@@ -52,14 +62,10 @@ def _save(field: str) -> None:
 
 def _load_example() -> None:
     data = _state()
-    if data["kind"] == "Task scheduling":
-        values = {"tasks": "Review\nBuild\nDemo", "slots": "Morning\nAfternoon",
-                  "conflicts": [("Review", "Demo"), ("Build", "Demo")]}
-    else:
-        values = {"nodes": "Depot\nJunction\nHarbour\nAirport",
-                  "edges": [("Depot", "Junction"), ("Depot", "Harbour"),
-                            ("Junction", "Airport"), ("Harbour", "Airport")],
-                  "source": "Depot", "target": "Airport"}
+    definition = next((item for item in PROBLEM_TYPES.values() if item.label == data["kind"]), None)
+    if definition is None:
+        return
+    values = deepcopy(definition.example)
     data.update(values)
     for field, value in values.items():
         st.session_state[f"_ps_{field}"] = value
@@ -83,7 +89,7 @@ def _pair_editor(field: str, names: list[str], maximum: int, label: str) -> None
                    disabled=not options, on_change=_save, args=(field,))
 
 
-def _scheduling_inputs(data: dict) -> Model | None:
+def _scheduling_inputs(data: dict) -> None:
     _heading("01", "What needs a place?")
     tasks, slots = st.columns(2, gap="large")
     with tasks:
@@ -103,17 +109,9 @@ def _scheduling_inputs(data: dict) -> Model | None:
                  on_change=_save, args=("goal",))
     if data["goal"] == "fewest_slots":
         st.warning("Model only: you can inspect this optimization objective, but the current scheduler cannot prove a minimum. No solution will be generated for it.")
-    try:
-        return scheduling_model(names, _lines(data["slots"]), data["conflicts"], data["goal"])
-    except ValueError as exc:
-        if data["tasks"] or data["slots"]:
-            st.warning(str(exc))
-        else:
-            st.caption("Add tasks and slots, or load the example, to build a model.")
-        return None
 
 
-def _routing_inputs(data: dict) -> Model | None:
+def _routing_inputs(data: dict) -> None:
     _heading("01", "Define the network.")
     nodes, edges = st.columns([1, 1.5], gap="large")
     with nodes:
@@ -132,14 +130,10 @@ def _routing_inputs(data: dict) -> Model | None:
         st.selectbox("Destination", names, key="_ps_target", disabled=not names, on_change=_save, args=("target",))
     _heading("03", "Take the fewest connections.")
     st.caption("The objective is a minimum-hop route between two different nodes. Weighted costs, one-way links, capacities, and multiple routes are not supported; no such properties are inferred from names.")
-    try:
-        return routing_model(_lines(data["nodes"]), data["edges"], data["source"], data["target"])
-    except ValueError as exc:
-        if data["nodes"]:
-            st.warning(str(exc))
-        else:
-            st.caption("Add nodes and connections, or load the example, to build a model.")
-        return None
+
+
+# Domain-specific fields only. Model building, solving, and results are shared.
+INPUT_RENDERERS = {"scheduling": _scheduling_inputs, "routing": _routing_inputs}
 
 
 def _render_model(model: Model) -> None:
@@ -147,6 +141,9 @@ def _render_model(model: Model) -> None:
             '<h2>Your inputs.<br><em>Made explicit.</em></h2></div>')
     status = "READY TO SOLVE" if model.supported else "MODEL ONLY / SOLVING UNSUPPORTED"
     st.html(f'<div class="ps-support"><span>{status}</span><p>{escape(model.support_note)}</p></div>')
+    definition = PROBLEM_TYPES.get(model.kind)
+    solver_name = definition.solver_name if definition and model.supported else "None for this model / objective"
+    st.caption(f"Available solver: {solver_name}")
     st.caption(f"{len(model.variables)} decision variables · {len(model.constraints)} explicit constraints · Variable domains apply throughout")
     with st.expander("Input symbols & modelling assumptions"):
         st.dataframe([{"Symbol": symbol, "Your input": name} for symbol, name in model.parameters],
@@ -168,11 +165,11 @@ def _render_model(model: Model) -> None:
             st.dataframe([{"Variable": item.symbol, "Allowed values": item.domain, "Meaning": item.meaning}
                           for item in model.variables], hide_index=True, width="stretch")
         else:
-            st.info("There are no connections, so there are no arc variables. Inspect the flow constraints to see why a route is impossible.")
+            st.info("This model has no decision variables. Inspect its constraints to determine feasibility.")
         if model.kind == "scheduling":
             slots = " · ".join(f"s{index} = {escape(slot)}" for index, slot in enumerate(model.problem.slots, 1))
             st.html(f'<p class="ps-symbols">{slots}</p>')
-        else:
+        elif model.kind == "routing":
             st.caption("Indices follow your node-list order. Each two-way connection creates two binary variables, one for each direction.")
     with constraints:
         st.caption("Every rule below is instantiated from your inputs. All variable domains must also hold.")
@@ -190,15 +187,17 @@ def _render_solution(solution: Solution) -> None:
         label = {"infeasible": "No feasible solution", "limit": "Search limit · inconclusive", "unsupported": "Solving is unsupported"}[solution.status]
         st.warning(label + ". " + solution.explanation)
         return
-    st.success("Verified solution")
+    st.success("Verified solution for the structured model")
     if solution.schedule:
         st.dataframe([{"Task": task, "Assigned slot": slot} for task, slot in solution.schedule],
                      hide_index=True, width="stretch")
         st.caption("Objective value: 0 (feasibility). All valid schedules have the same objective value.")
-    else:
+    elif solution.route:
         route = '<span class="ps-route-arrow">→</span>'.join(f'<span>{escape(node)}</span>' for node in solution.route)
         st.html(f'<div class="ps-route">{route}</div>')
         st.caption(f"Optimal objective value: {solution.objective_value} hops")
+    elif solution.objective_value is not None:
+        st.caption(f"Objective value: {solution.objective_value}")
     st.write(solution.explanation)
     with st.expander("Inspect the solved variable values"):
         st.dataframe([{"Variable": variable, "Value": value} for variable, value in solution.values],
@@ -211,38 +210,62 @@ def _inspect(model: Model, solution: Solution | None) -> None:
 
 def render_problem_studio_content() -> None:
     data = _state()
-    for field in ("kind", "tasks", "slots", "conflicts", "goal", "nodes", "edges", "source", "target"):
+    fields = {"kind", "description"} | {field for item in PROBLEM_TYPES.values() for field in item.input_defaults}
+    for field in fields:
         if f"_ps_{field}" not in st.session_state:
             st.session_state[f"_ps_{field}"] = data[field]
     st.html('<section class="ps-intro"><p class="eyebrow">PROBLEM STUDIO / START HERE</p>'
             '<h1>Give the problem<br><em>a precise shape.</em></h1>'
-            '<p>Start with a real-world scheduling or routing problem. Build its model, solve what is supported, and inspect the reasoning behind the result.</p></section>')
+            '<p>Describe the decision you need to make. Choose a supported problem type, structure the data, and follow the model through to an explained result.</p></section>')
     st.caption("Your workflow: problem → mathematical model → solver → visual inspection → explanation")
+    st.text_area("Describe your problem (optional)", key="_ps_description", height=100, max_chars=2000,
+                 placeholder="What decision are you trying to make, and what matters for a useful result?",
+                 on_change=_save, args=("description",))
+    st.caption("Your description is saved as context only. It is not interpreted automatically. Solvers use only the structured inputs and rules below.")
+    labels = {definition.label: slug for slug, definition in PROBLEM_TYPES.items()}
     kind, sample = st.columns([2, 1], vertical_alignment="bottom")
     with kind:
-        st.radio("Choose a problem", ["Task scheduling", "Network routing"], key="_ps_kind",
-                 horizontal=True, on_change=_save, args=("kind",))
+        st.radio("Choose a supported problem type", [*labels, UNSUPPORTED_CHOICE], key="_ps_kind",
+                 index=None, horizontal=True, on_change=_save, args=("kind",))
+    slug = labels.get(data["kind"])
+    definition = PROBLEM_TYPES.get(slug)
+    render_inputs = INPUT_RENDERERS.get(slug)
     with sample:
-        st.button("Load example", key="ps_example", on_click=_load_example, width="stretch")
+        st.button("Load example", key="ps_example", on_click=_load_example, width="stretch", disabled=definition is None or render_inputs is None)
     if notice := data.pop("notice", None):
         st.info(notice)
 
-    with st.container(key="ps_inputs"):
-        candidate = _scheduling_inputs(data) if data["kind"] == "Task scheduling" else _routing_inputs(data)
+    candidate = None
+    if definition and render_inputs:
+        st.write(definition.description)
+        st.caption(f"Type solver: {definition.solver_name}")
+        with st.container(key="ps_inputs"):
+            render_inputs(data)
+        try:
+            candidate = definition.build_model(data)
+        except ValueError as exc:
+            if any(data[field] != default for field, default in definition.input_defaults.items()):
+                st.warning(str(exc))
+            else:
+                st.caption("Enter structured data, or load an example, to build the model.")
+    elif data["kind"] is None:
+        st.info("Choose a supported type to see its data requirements and solver. You can start with the form or keep a description as context.")
+    else:
+        st.warning("This problem type is not supported. You can keep your description, but no model or solution will be generated. Choose a supported type only if its stated assumptions fit your problem.")
     if st.button("Build model ↗", key="ps_build", type="primary", disabled=candidate is None):
         data.update(model=candidate, solution=None, dirty=False)
-    if data["dirty"]:
+    if data["dirty"] and definition:
         st.info("Inputs changed. Build the model again to inspect the current problem.")
     model = data["model"]
-    if model is not None and model == candidate:
+    if definition and model is not None and model == candidate:
         _render_model(model)
         if st.button("Solve this model ↗", key="ps_solve", type="primary", disabled=not model.supported):
             with st.spinner("Running the existing solver and checking the result…"):
                 data["solution"] = solve_model(model)
         if data["solution"] is not None:
             _render_solution(data["solution"])
-        label = "Inspect in Workbench ↗" if model.kind == "scheduling" else "Visualize in Graph Explorer ↗"
-        st.button(label, key="ps_inspect", on_click=_inspect, args=(model, data["solution"]), disabled=not model.supported)
-        st.caption("Continue with these inputs and the same recorded solver run, when available. Your existing inspection-page draft is kept; edits made there return to this Studio problem.")
-    elif not data["dirty"]:
+        if definition.inspector:
+            st.button(definition.inspector_label, key="ps_inspect", on_click=_inspect, args=(model, data["solution"]), disabled=not model.supported)
+            st.caption("Continue with these inputs and the same recorded solver run, when available. Your existing inspection-page draft is kept; edits made there return to this Studio problem.")
+    elif definition and not data["dirty"]:
         st.html('<div class="ps-empty">A model you can read.<br><span>Build your model to inspect every decision and rule before solving.</span></div>')

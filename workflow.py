@@ -2,7 +2,7 @@
 
 from copy import deepcopy
 
-from problem_models import Model, Solution
+from problem_models import PROBLEM_TYPES, Model, Solution
 
 
 SYLLABUS_AREAS = (
@@ -20,7 +20,7 @@ def method_notes(model: Model) -> dict[str, str]:
         if model.supported:
             notes["Advanced Combinatorial Techniques"] = "The existing backtracking search rejects conflicting placements and revisits earlier choices. It finds feasibility, not a proven minimum."
         notes["Graph Theory"] = "Tasks and conflict pairs form a conflict graph. Assigning different slots to adjacent tasks is a graph-colouring formulation."
-    else:
+    elif model.kind == "routing":
         notes["Graph Theory"] = "Connections form an undirected graph. BFS explores distance layers; its discovery tree supplies a minimum-hop route."
     return notes
 
@@ -35,8 +35,11 @@ def open_inspector(state, model: Model, solution: Solution | None) -> None:
     """Carry the exact inputs and recorded run, preserving any independent draft."""
     if not model.supported:
         raise ValueError("This objective cannot be handed to a solver that does not support it.")
+    definition = PROBLEM_TYPES.get(model.kind)
+    if definition is None or definition.inspector not in ("workbench", "graphs"):
+        raise ValueError("No inspection tool is registered for this problem type.")
     close_inspector(state)
-    if model.kind == "scheduling":
+    if definition.inspector == "workbench":
         page, key, prefix = "workbench", "wb_data", "_wb_"
         inputs = {"tasks": "\n".join(model.problem.tasks), "slots": "\n".join(model.problem.slots),
                   "conflicts": list(model.problem.conflicts)}
@@ -69,7 +72,7 @@ def close_inspector(state) -> None:
     inputs = {field: deepcopy(data[field]) for field in handoff["inputs"]}
     if inputs != handoff["inputs"]:
         studio = state["ps_data"]
-        if handoff["model"].kind == "routing":
+        if handoff["page"] == "graphs":
             inputs["source"] = inputs.pop("start")
             nodes = [line.strip() for line in inputs["nodes"].splitlines() if line.strip()]
             if studio["target"] not in nodes:

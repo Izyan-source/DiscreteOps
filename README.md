@@ -23,8 +23,8 @@ Open http://localhost:8501. On Windows, activate the environment with `.venv\Scr
 - `solver.py`: Streamlit-independent input validation, backtracking, and schedule verification.
 - `graph_explorer.py`: graph editing, examples, SVG visualization, and interactive traversal steps.
 - `graph_algorithms.py`: Streamlit-independent graph validation and recorded BFS/DFS traversals.
-- `problem_studio.py`: guided scheduling/routing forms and model/solution inspection.
-- `problem_models.py`: Streamlit-independent model generation and adapters to existing solvers.
+- `problem_studio.py`: shared problem intake, type-specific forms, and model/solution inspection.
+- `problem_models.py`: the problem-type registry, model builders, and adapters to existing solvers, independent of Streamlit.
 - `workflow.py`: contextual method explanations and session handoffs that preserve existing inspection-page drafts.
 - `assets/styles.css`: shared palette, typography, responsive layout, and subtle motion.
 - `assets/experience.html`: a self-contained canvas component for the scroll narrative and visual lab.
@@ -34,7 +34,9 @@ Explore progresses from points to connections to an illustrative constrained spa
 
 ## Problem Studio
 
-Choose **Task scheduling** or **Network routing**, enter inputs through the numbered form (or load an example), then **Build model**. Inspect the Variables, Constraints, and Objective tabs, along with the input-symbol mapping and assumptions. Building a model does not solve it. **Solve this model** runs only supported formulations; edits clear stale models and results.
+Start with an optional problem description, or go directly to structured input. New sessions have no problem type preselected. Choose **Task scheduling** or **Network routing**, review its scope and available solver, enter data through the numbered form (or load an example), then **Build model**. Inspect the Variables, Constraints, and Objective tabs, along with the input-symbol mapping and assumptions. Building a model does not solve it. **Solve this model** runs only supported formulations; structured-input edits clear stale models and results.
+
+Descriptions are saved as context only. They are not parsed, classified, or converted into constraints; every supported rule must be entered in the form. Changing the description alone does not change the mathematical model. Choose **Other / not supported yet** when the current assumptions do not fit: the description remains available, while model building and solving are unavailable. Results explicitly apply to the structured model, not every requirement mentioned in prose.
 
 Continue with **Inspect in Workbench** or **Visualize in Graph Explorer**. These actions carry the current inputs and, when available, the exact recorded solver run into the existing view without recomputing it. The Workbench displays schedule lanes and the search audit; Graph Explorer replays the BFS behind routing. The BFS traversal is a search over the reachable component, not the selected route itself; the route and destination stay in Studio. DFS remains available for exploration and does not replace the minimum-hop routing solver.
 
@@ -59,6 +61,14 @@ Only relevant methods are described as applied to each model. These mappings do 
 Existing input limits apply (24 tasks / 12 slots or 16 nodes). Unsupported objectives are never silently replaced with feasibility results. A scheduling search limit is reported as inconclusive, not infeasible. No AI services or new dependencies are used.
 
 Focused Studio checks: `python -m unittest discover -s tests -p 'test_problem_studio.py' -v`.
+
+### Extending supported problem types
+
+`PROBLEM_TYPES` in `problem_models.py` is the central registry. Each entry defines its label/scope, input defaults, example, model builder, solver adapter, solver name, and optional existing inspection tool. `solve_model` dispatches by the exact registered model kind and returns `unsupported` for unknown kinds; it never falls through to scheduling or routing.
+
+To add a supported formulation, supply its validated builder and solver adapter returning the common `Model`/`Solution` structures, register a `ProblemType` under that model's kind, and add its field renderer to `INPUT_RENDERERS` in `problem_studio.py`. Use distinct input field names for independent drafts. Renderers draw domain inputs; the shared Studio flow handles state, examples, validation messages, model inspection, support status, solving, explanations, and variable values. Optional schedule/route presentation is retained for the current types; other results use the common values and explanation fields. No new page or copied orchestration is needed. Only declare a Workbench/Graph Explorer handoff when the adapter supplies that existing tool's `Problem`/`Graph` and trace contract; otherwise leave it unset.
+
+This change adds no problem types or algorithms beyond scheduling feasibility and unweighted routing. The registry provides an extension point, not a claim that arbitrary described problems can be solved.
 
 ## Graph Explorer
 

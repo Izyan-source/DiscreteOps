@@ -1,13 +1,29 @@
 import unittest
+from dataclasses import replace
 from unittest.mock import patch
 
 from streamlit.testing.v1 import AppTest
 
 from graph_algorithms import traverse
-from problem_models import routing_model, scheduling_model, solve_model
+from problem_models import PROBLEM_TYPES, Solution, routing_model, scheduling_model, solve_model
+from problem_studio import INPUT_RENDERERS, UNSUPPORTED_CHOICE
 
 
 class ModelTests(unittest.TestCase):
+    def test_registry_dispatches_explicitly_and_rejects_unknown_types(self):
+        model = scheduling_model(["A"], ["Morning"], [])
+        with patch("problem_models.solve") as scheduler, patch("problem_models.traverse") as bfs:
+            unknown = replace(model, kind="unregistered")
+            self.assertEqual(solve_model(unknown).status, "unsupported")
+            scheduler.assert_not_called()
+            bfs.assert_not_called()
+
+        # An additional adapter uses the same dispatcher, without a new branch.
+        expected = Solution("unsupported", "Test adapter has no solver.")
+        adapter = replace(PROBLEM_TYPES["scheduling"], solve=lambda model: expected, inspector=None)
+        with patch.dict(PROBLEM_TYPES, {"test_type": adapter}):
+            self.assertEqual(solve_model(replace(model, kind="test_type")), expected)
+
     def test_schedule_model_and_verified_solution(self):
         model = scheduling_model(["Review", "Build", "Demo"], ["AM", "PM"],
                                  [("Review", "Demo"), ("Build", "Demo")])
@@ -68,6 +84,7 @@ class StudioTests(unittest.TestCase):
         app = AppTest.from_file("app.py", default_timeout=60).run()
         app.button(key="nav_studio").click().run()
         self.assertTrue(app.button(key="ps_build").disabled)
+        app.radio(key="_ps_kind").set_value("Task scheduling").run()
         app.button(key="ps_example").click().run()
         app.button(key="ps_build").click().run()
         app.button(key="ps_solve").click().run()
@@ -98,6 +115,50 @@ class StudioTests(unittest.TestCase):
         app.selectbox(key="_ps_target").select("Custom").run()
         self.assertTrue(app.button(key="ps_build").disabled)
         self.assertFalse(app.exception)
+
+    def test_description_is_context_and_unsupported_types_do_not_solve(self):
+        app = AppTest.from_file("app.py", default_timeout=60).run()
+        self.assertIsNone(app.radio(key="_ps_kind").value)
+        app.text_area(key="_ps_description").set_value("Allocate a transport budget using weighted routes.").run()
+        self.assertTrue(app.button(key="ps_build").disabled)
+        self.assertTrue(app.button(key="ps_example").disabled)
+        app.radio(key="_ps_kind").set_value(UNSUPPORTED_CHOICE).run()
+        self.assertTrue(app.button(key="ps_build").disabled)
+        self.assertIsNone(app.session_state["ps_data"]["model"])
+        self.assertTrue(any("not supported" in warning.value for warning in app.warning))
+        app.radio(key="_ps_kind").set_value("Task scheduling").run()
+        app.button(key="ps_example").click().run()
+        app.button(key="ps_build").click().run()
+        app.button(key="ps_solve").click().run()
+        result = app.session_state["ps_data"]["solution"]
+        app.text_area(key="_ps_description").set_value("Context edited; the structured task inputs are unchanged.").run()
+        self.assertEqual(app.session_state["ps_data"]["solution"], result)
+        app.button(key="ps_inspect").click().run()
+        app.button(key="workflow_return").click().run()
+        self.assertEqual(app.text_area(key="_ps_description").value, "Context edited; the structured task inputs are unchanged.")
+        app.radio(key="_ps_kind").set_value(UNSUPPORTED_CHOICE).run()
+        self.assertIsNone(app.session_state["ps_data"]["solution"])
+        self.assertFalse(any(button.key == "ps_solve" for button in app.button))
+        app.radio(key="_ps_kind").set_value("Task scheduling").run()
+        self.assertEqual(app.text_area(key="_ps_tasks").value, "Review\nBuild\nDemo")
+        self.assertEqual(app.multiselect(key="_ps_conflicts").value, [("Review", "Demo"), ("Build", "Demo")])
+        self.assertFalse(app.exception)
+
+    def test_shared_studio_flow_accepts_an_additional_adapter(self):
+        base = PROBLEM_TYPES["scheduling"]
+        def build(data):
+            return replace(base.build_model(data), kind="test_adapter")
+        adapter = replace(base, label="Test adapter", build_model=build, inspector=None)
+        with patch.dict(PROBLEM_TYPES, {"test_adapter": adapter}), patch.dict(INPUT_RENDERERS, {"test_adapter": INPUT_RENDERERS["scheduling"]}):
+            app = AppTest.from_file("app.py", default_timeout=60).run()
+            app.radio(key="_ps_kind").set_value("Test adapter").run()
+            app.button(key="ps_example").click().run()
+            app.button(key="ps_build").click().run()
+            self.assertEqual(app.session_state["ps_data"]["model"].kind, "test_adapter")
+            app.button(key="ps_solve").click().run()
+            self.assertEqual(app.session_state["ps_data"]["solution"].status, "solved")
+            self.assertFalse(any(button.key == "ps_inspect" for button in app.button))
+            self.assertFalse(app.exception)
 
 
 if __name__ == "__main__":

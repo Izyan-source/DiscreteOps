@@ -1,10 +1,10 @@
 """Input-to-model translation and adapters for existing solvers; no Streamlit."""
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Callable, Literal
 
-from graph_algorithms import Graph, Traversal, make_graph, traverse
-from solver import Problem, Result, audit_schedule, make_problem, solve
+from graph_algorithms import Traversal, make_graph, traverse
+from solver import Result, audit_schedule, make_problem, solve
 
 
 @dataclass(frozen=True)
@@ -23,7 +23,7 @@ class Constraint:
 
 @dataclass(frozen=True)
 class Model:
-    kind: Literal["scheduling", "routing"]
+    kind: str
     parameters: tuple[tuple[str, str], ...]
     variables: tuple[Variable, ...]
     constraints: tuple[Constraint, ...]
@@ -33,7 +33,7 @@ class Model:
     assumptions: tuple[str, ...]
     supported: bool
     support_note: str
-    problem: Problem | Graph
+    problem: object  # Validated domain data, owned by the registered adapter.
     source: str | None = None
     target: str | None = None
 
@@ -48,6 +48,21 @@ class Solution:
     objective_value: int | None = None
     schedule_trace: Result | None = None
     traversal: Traversal | None = None
+
+
+@dataclass(frozen=True)
+class ProblemType:
+    """One supported formulation; the Studio lifecycle is shared by all types."""
+
+    label: str
+    description: str
+    input_defaults: dict
+    example: dict
+    build_model: Callable[[dict], Model]
+    solve: Callable[[Model], Solution]
+    solver_name: str
+    inspector: str | None = None
+    inspector_label: str = "Inspect result"
 
 
 def scheduling_model(tasks: list[str], slots: list[str], conflicts: list[tuple[str, str]],
@@ -126,25 +141,23 @@ def routing_model(nodes: list[str], edges: list[tuple[str, str]], source: str, t
     )
 
 
-def solve_model(model: Model) -> Solution:
-    """Execute only supported models; never downgrade an optimization request."""
-    if not model.supported:
-        return Solution("unsupported", model.support_note)
-    if model.kind == "scheduling":
-        problem = model.problem
-        result = solve(problem)
-        if result.status == "infeasible":
-            return Solution("infeasible", "The backtracking search exhausted all branches. No assignment satisfies these task conflicts with the supplied slots.", schedule_trace=result)
-        if result.status == "limit":
-            return Solution("limit", "The scheduler reached its search limit. Feasibility is unknown; no partial assignment is shown.", schedule_trace=result)
-        if audit_schedule(problem, result.assignments):
-            raise RuntimeError("The schedule failed independent verification.")
-        slot_ids = {slot: f"s{index}" for index, slot in enumerate(problem.slots, 1)}
-        return Solution("solved", f"All {len(problem.tasks)} tasks receive one listed slot, and all {len(problem.conflicts)} conflict pairs occupy different slots. The assignment was independently verified. This satisfies the feasibility objective; it does not prove the fewest slots.",
-                        values=tuple((f"x[{index}]", slot_ids[result.assignments[task]])
-                                     for index, task in enumerate(problem.tasks, 1)),
-                        schedule=tuple(result.assignments.items()), objective_value=0, schedule_trace=result)
+def _solve_scheduling(model: Model) -> Solution:
+    problem = model.problem
+    result = solve(problem)
+    if result.status == "infeasible":
+        return Solution("infeasible", "The backtracking search exhausted all branches. No assignment satisfies these task conflicts with the supplied slots.", schedule_trace=result)
+    if result.status == "limit":
+        return Solution("limit", "The scheduler reached its search limit. Feasibility is unknown; no partial assignment is shown.", schedule_trace=result)
+    if audit_schedule(problem, result.assignments):
+        raise RuntimeError("The schedule failed independent verification.")
+    slot_ids = {slot: f"s{index}" for index, slot in enumerate(problem.slots, 1)}
+    return Solution("solved", f"All {len(problem.tasks)} tasks receive one listed slot, and all {len(problem.conflicts)} conflict pairs occupy different slots. The assignment was independently verified. This satisfies the feasibility objective; it does not prove the fewest slots.",
+                    values=tuple((f"x[{index}]", slot_ids[result.assignments[task]])
+                                 for index, task in enumerate(problem.tasks, 1)),
+                    schedule=tuple(result.assignments.items()), objective_value=0, schedule_trace=result)
 
+
+def _solve_routing(model: Model) -> Solution:
     graph = model.problem
     traversal = traverse(graph, model.source, "BFS")
     if model.target not in traversal.order:
@@ -167,3 +180,43 @@ def solve_model(model: Model) -> Solution:
     return Solution("solved", "BFS explores nodes in increasing hop distance. This route follows its discovery tree to the destination, so no route with fewer connections exists. Every selected arc is an existing connection, and all node flow balances were verified.",
                     values=tuple((_arc_symbol(a, b, ids), int((a, b) in chosen)) for a, b in arcs),
                     route=tuple(path), objective_value=len(path) - 1, traversal=traversal)
+
+
+def input_lines(value: str) -> list[str]:
+    return [line.strip() for line in value.splitlines() if line.strip()]
+
+
+PROBLEM_TYPES = {
+    "scheduling": ProblemType(
+        label="Task scheduling",
+        description="Assign activities to non-overlapping slots while keeping conflicting pairs apart. Useful for workshops, meetings, or shared-resource activities with explicit pairwise conflicts.",
+        input_defaults={"tasks": "", "slots": "", "conflicts": [], "goal": "feasible"},
+        example={"tasks": "Review\nBuild\nDemo", "slots": "Morning\nAfternoon",
+                 "conflicts": [("Review", "Demo"), ("Build", "Demo")]},
+        build_model=lambda data: scheduling_model(input_lines(data["tasks"]), input_lines(data["slots"]), data["conflicts"], data["goal"]),
+        solve=_solve_scheduling,
+        solver_name="Backtracking — valid schedules only; slot minimization is model-only",
+        inspector="workbench", inspector_label="Inspect in Workbench ↗",
+    ),
+    "routing": ProblemType(
+        label="Network routing",
+        description="Find a route between places or system nodes using the fewest connections. Connections must be two-way and have equal cost; distance, travel time, and capacity are not represented.",
+        input_defaults={"nodes": "", "edges": [], "source": None, "target": None},
+        example={"nodes": "Depot\nJunction\nHarbour\nAirport",
+                 "edges": [("Depot", "Junction"), ("Depot", "Harbour"), ("Junction", "Airport"), ("Harbour", "Airport")],
+                 "source": "Depot", "target": "Airport"},
+        build_model=lambda data: routing_model(input_lines(data["nodes"]), data["edges"], data["source"], data["target"]),
+        solve=_solve_routing, solver_name="Breadth-first search — minimum-hop routes",
+        inspector="graphs", inspector_label="Visualize in Graph Explorer ↗",
+    ),
+}
+
+
+def solve_model(model: Model) -> Solution:
+    """Dispatch explicitly; unknown types never fall through to another solver."""
+    definition = PROBLEM_TYPES.get(model.kind)
+    if definition is None:
+        return Solution("unsupported", "No solver is registered for this problem type.")
+    if not model.supported:
+        return Solution("unsupported", model.support_note)
+    return definition.solve(model)
