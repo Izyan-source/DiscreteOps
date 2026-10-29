@@ -9,7 +9,7 @@ import os
 import streamlit as st
 
 from explanations import explain_model, render_explanation, solution_status
-from ai_interpretation import DEFAULT_MODEL, InterpretationError, apply_proposal, interpret, parse_proposal, proposal_inputs
+from ai_interpretation import CATEGORY_ALIASES, DEFAULT_MODEL, InterpretationError, apply_proposal, interpret, parse_proposal, proposal_inputs
 from allocation_solver import MAX_COST, MAX_RESOURCES, MAX_TASKS as MAX_ALLOCATION_TASKS, MAX_UNITS, validate_names
 from graph_algorithms import MAX_NODES
 from graph_explorer import graph_markup, render_edge_costs
@@ -39,10 +39,6 @@ def _state() -> dict:
 def _save(field: str) -> None:
     data = _state()
     data[field] = st.session_state[f"_ps_{field}"]
-    if field == "description":
-        st.session_state["_ai_reviewed"] = False
-        # Editing prose alone never changes a structured model or runs AI.
-        return
     if field == "kind":
         # Remounted widgets must pick up the saved draft, not frontend defaults.
         for definition in PROBLEM_TYPES.values():
@@ -371,11 +367,11 @@ def _accept_ai() -> None:
 
 def _render_ai_intake(data: dict) -> None:
     with st.expander("AI-assisted interpretation · optional"):
-        st.caption("Interpret with AI sends only this description to OpenAI. It proposes inputs, not solutions. "
+        st.caption("Interpret with AI sends only this description to Google Gemini. It proposes inputs, not solutions. "
                    "Nothing is sent on typing or navigation. Review extracted facts and assumptions before loading them.")
-        key = _ai_setting("OPENAI_API_KEY")
+        key = _ai_setting("GEMINI_API_KEY")
         if not key:
-            st.info("To enable AI, configure OPENAI_API_KEY in the server environment or .streamlit/secrets.toml. Manual entry remains available.")
+            st.info("To enable AI, configure GEMINI_API_KEY in the server environment or .streamlit/secrets.toml. Manual entry remains available.")
         if st.button("Interpret with AI", key="ai_interpret", disabled=not key or not data["description"].strip()):
             for field in ("ai_proposal_text", "ai_source", "ai_error", "_ai_proposal_editor"):
                 st.session_state.pop(field, None)
@@ -413,12 +409,30 @@ def _render_ai_intake(data: dict) -> None:
                 st.markdown(f"**{title}**")
                 for detail in proposal[field]:
                     st.text("• " + detail)
+        if CATEGORY_ALIASES.get(proposal["category"]) == "scheduling":
+            st.markdown("**Handoff to Task scheduling**")
+            section = proposal["scheduling"]
+            if section is not None:
+                st.table([
+                    {"Proposal field": "scheduling.tasks", "Studio input": "Tasks", "Extracted value": ", ".join(section["tasks"]) or "Missing — enter session/task names"},
+                    {"Proposal field": "scheduling.slots", "Studio input": "Time slots", "Extracted value": ", ".join(section["slots"]) or "Missing — enter available time periods"},
+                    {"Proposal field": "scheduling.conflicts", "Studio input": "Conflicting task pairs", "Extracted value": (
+                        "Missing — specify pairs" if section["conflicts"] is None else
+                        "; ".join(f"{pair['first']} / {pair['second']}" for pair in section["conflicts"]) or "No conflicting pairs declared")},
+                    {"Proposal field": "scheduling.goal", "Studio input": "Objective", "Extracted value": GOALS.get(section["goal"], "Missing — specify objective")},
+                ])
+            st.caption("Edit these fields in the JSON proposal above. Loading copies them into the existing Task scheduling form; it does not run a solver. "
+                       "Room assignment and classroom capacity are not handled. Minimum-slot optimization is model-only.")
         _, model = proposal_inputs(proposal)
         st.info("Proposed mathematical model, generated locally from these inputs. Review its variables, constraints, objective and assumptions; no solver has run for this proposal.")
         _render_model(model)
         ready = model.supported and not proposal["questions"] and not proposal["unsupported_requirements"]
-        if not ready:
-            st.warning("This proposal needs clarification or uses unsupported rules. Revise it before loading; the manual workflows remain available below.")
+        if proposal["questions"]:
+            st.warning("Before loading, answer each question listed above, update the extracted fields, and remove only questions you have resolved.")
+        if proposal["unsupported_requirements"]:
+            st.warning("Loading is blocked by the unsupported requirements listed above. Keep them in the proposal; the existing solver cannot satisfy the full problem.")
+        if not model.supported:
+            st.warning(model.support_note)
     except ValueError as exc:
         st.warning("Proposal needs attention: " + str(exc))
     st.checkbox("I reviewed the extracted facts, objective and assumptions against my real problem.", key="_ai_reviewed")
@@ -438,9 +452,14 @@ def render_problem_studio_content() -> None:
             '<p>Describe the decision you need to make. Choose a supported problem type, structure the data, and follow the model through to an explained result.</p></section>')
     st.caption("01 Describe → 02 Choose category → 03 Structure inputs → 04 Review model → 05 Solve → 06 Inspect & revise")
     _heading("01", "Describe the decision.")
-    st.text_area("Describe your problem (optional)", key="_ps_description", height=100, max_chars=2000,
-                 placeholder="What decision are you trying to make, and what matters for a useful result?",
-                 on_change=_save, args=("description",))
+    description = st.text_area("Describe your problem (optional)", key="_ps_description", height=100, max_chars=2000,
+                               placeholder="What decision are you trying to make, and what matters for a useful result?",
+                               help="Click outside this field or press Ctrl+Enter (⌘+Enter on Mac) to apply your text.")
+    # Read the widget's committed value before rendering dependent AI controls.
+    # Prose edits must not invalidate structured inputs or run an interpretation.
+    if description != data["description"]:
+        data["description"] = description
+        _reset_ai_review()
     st.caption("Your description stays context unless you explicitly request AI interpretation and accept its reviewed inputs. Solvers use only the structured inputs and rules below.")
     _render_ai_intake(data)
     _heading("02", "Choose the problem category.")

@@ -25,7 +25,7 @@ Open http://localhost:8501. On Windows, activate the environment with `.venv\Scr
 - `graph_explorer.py`: graph editing, examples, SVG visualization, and interactive traversal steps.
 - `graph_algorithms.py`: Streamlit-independent graph/cost validation and recorded BFS, DFS, and Dijkstra searches.
 - `problem_studio.py`: shared problem intake, type-specific forms, and model/solution inspection.
-- `ai_interpretation.py`: optional OpenAI input extraction, strict local proposal validation, and explicit acceptance into the existing registry; never runs a solver.
+- `ai_interpretation.py`: optional Gemini input extraction, strict local proposal validation, and explicit acceptance into the existing registry; never runs a solver.
 - `problem_models.py`: the problem-type registry, model builders, and adapters to existing solvers, independent of Streamlit.
 - `workflow.py`: session handoffs that preserve existing inspection-page drafts.
 - `explanations.py`: shared model explanations, outcome labels, and relevant syllabus concepts.
@@ -49,18 +49,20 @@ Descriptions stay context unless you explicitly request AI interpretation and ac
 
 ### Optional AI interpretation
 
-The only added direct dependency is the official `openai` Python SDK. Install with `python -m pip install -r requirements.txt` in the project virtual environment. Manual workflows work without an API key, and report an actionable error if the SDK is missing when AI is requested.
+The only added direct dependency is the official `google-genai` Python SDK. Install with `python -m pip install -r requirements.txt` in the project virtual environment. Manual workflows work without an API key, and report an actionable error if the SDK is missing when AI is requested.
 
-Configure `OPENAI_API_KEY` in the server environment, or add this locally to **`.streamlit/secrets.toml`** (already ignored by Git):
+If macOS installation tries to compile `cryptography` and fails for missing OpenSSL, retry with `python -m pip install --only-binary=cryptography -r requirements.txt` to select a compatible prebuilt wheel.
+
+Configure `GEMINI_API_KEY` in the server environment, or add this locally to **`.streamlit/secrets.toml`** (already ignored by Git):
 
 ```toml
-OPENAI_API_KEY = "replace-with-your-api-key"
-DISCRETEOPS_AI_MODEL = "gpt-4.1-mini"
+GEMINI_API_KEY = "replace-with-your-api-key"
+DISCRETEOPS_AI_MODEL = "gemini-3.5-flash-lite"
 ```
 
-`DISCRETEOPS_AI_MODEL` is optional and can also be an environment variable. Environment settings take precedence; `.env` files are not automatically loaded. Never commit a real key or put it in a UI field. Restart Streamlit after changing server configuration. The default [GPT-4.1 mini](https://developers.openai.com/api/docs/models/gpt-4.1-mini) supports the [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs) format used here; a replacement must support Responses API strict JSON-schema output.
+`DISCRETEOPS_AI_MODEL` is optional and can also be an environment variable. Environment settings take precedence; `.env` files are not automatically loaded. Never commit a real key or put it in a UI field. Restart Streamlit after changing server configuration. The default [Gemini 3.5 Flash-Lite](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite) is a current stable model with [structured outputs](https://ai.google.dev/gemini-api/docs/structured-output) and [free-tier input/output usage](https://ai.google.dev/gemini-api/docs/pricing). Free-tier quotas and account/region eligibility apply; billing-enabled projects can incur charges. A replacement model must support Gemini JSON-schema output. Remove any old OpenAI model override from `DISCRETEOPS_AI_MODEL`.
 
-Open **AI-assisted interpretation**, then click **Interpret with AI** to send only the current description (up to 2,000 characters) to OpenAI. The request also includes the supported model scopes and extraction schema, but no saved drafts or solver results. It uses `store=False`, a 30-second timeout, and no automatic retries. This does not promise zero provider retention; provider data policies still apply. API usage requires account access and may incur charges.
+Open **AI-assisted interpretation**, then click **Interpret with AI** to send only the current description (up to 2,000 characters) to Google Gemini. The request also includes the supported model scopes and extraction schema, but no saved drafts or solver results. It uses the Gemini Developer API with a 30-second timeout and one request attempt (no automatic retries), without tools or grounding. Google’s free-tier pricing states that content may be used to improve its products; provider data policies apply. The key is passed explicitly from `GEMINI_API_KEY`, so `GOOGLE_API_KEY` and Vertex AI environment settings do not select another backend.
 
 AI proposes a category, named entities, constraints, objective, assumptions, and questions. It has no tools and cannot run a solver. Decision variables and equations are derived locally by the same existing model builders used for manual inputs. Review the proposal, edit **Proposed structured inputs** JSON if necessary, and inspect the mathematical preview. Missing connection costs, capacities, requirements, eligibility, and optimization costs are not silently filled. Clarify the description and retry, or correct the proposal and explicitly resolve its questions. Unsupported requirements must not simply be dropped to make a problem fit; manual entry remains available for an independently chosen supported formulation.
 

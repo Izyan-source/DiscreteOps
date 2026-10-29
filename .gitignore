@@ -43,3 +43,4 @@ tmp/
 generated/
 node_modules/
 .DS_Store
+.streamlit/secrets.toml
