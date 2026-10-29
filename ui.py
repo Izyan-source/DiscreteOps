@@ -5,9 +5,13 @@ from pathlib import Path
 import streamlit as st
 import streamlit.components.v1 as components
 
-from workbench import render_workbench_content
-from graph_explorer import render_graph_explorer_content
-from problem_studio import render_problem_studio_content
+from workbench import render_workbench_content, render_result
+from graph_explorer import render_graph_explorer_content, _render_stage
+from problem_studio import render_problem_studio_content, _render_solution
+from ai_interpretation import parse_proposal, proposal_inputs
+from problem_models import PROBLEM_TYPES, input_lines
+from solver import make_problem
+from graph_algorithms import make_graph
 from workflow import close_inspector
 
 
@@ -39,9 +43,10 @@ def masthead(label: str, note: str) -> None:
     st.html(f'<div class="masthead"><span>DISCRETEOPS / {label}</span><span>{note}</span></div>')
 
 
-def render_experience(mode: str = "explore") -> None:
+def render_experience(mode: str = "explore", *, show_masthead: bool = True) -> None:
     """Only trusted, local markup is embedded. No frontend build or dependencies."""
-    masthead("EXPLORATION" if mode == "explore" else "VISUAL STUDIES", "AN INTERACTIVE FIELD OF POSSIBILITIES")
+    if show_masthead:
+        masthead("EXPLORATION" if mode == "explore" else "VISUAL STUDIES", "AN INTERACTIVE FIELD OF POSSIBILITIES")
     source = (ASSETS / "experience.html").read_text(encoding="utf-8")
     with st.container(key="experience"):
         components.html(source.replace("__EXPERIENCE_MODE__", mode),
@@ -52,8 +57,82 @@ def render_home() -> None:
     render_experience()
 
 
+def visualization_results(state) -> dict:
+    """Read current recorded outputs, never solve or change a source draft.
+
+    Rebuilding models here validates inputs only. The AI solve snapshot is durable
+    review evidence; its checkbox widget is removed when leaving Studio.
+    """
+    results = {}
+    data = state.get("ps_data", {})
+    model, solution = data.get("model"), data.get("solution")
+    if model is not None and solution is not None and not data.get("dirty"):
+        try:
+            definition = PROBLEM_TYPES[model.kind]
+            if (model.supported and data.get("kind") == definition.label
+                    and definition.build_model(data) == model):
+                results["studio"] = ("Problem Studio · " + definition.label, "studio", model, solution)
+        except (ValueError, KeyError, TypeError):
+            pass  # An incomplete or edited draft must not expose an old result.
+    text = state.get("ai_proposal_text")
+    if (text and state.get("ai_solution") is not None
+            and state.get("ai_solution_proposal") == text
+            and state.get("ai_source") == state.get("ps_chat_context")
+            and not state.get("ai_chat_error")):
+        try:
+            proposal = parse_proposal(text)
+            _, model = proposal_inputs(proposal)
+            if model.supported and not proposal["questions"] and not proposal["unsupported_requirements"]:
+                results["chat"] = ("Natural-language Studio · " + PROBLEM_TYPES[model.kind].label,
+                                   "studio", model, state["ai_solution"])
+        except (ValueError, KeyError, TypeError):
+            pass
+    for key, renderer, label in (("wb_data", "workbench", "Constraint Workbench · Schedule"),
+                                 ("gx_data", "graph", "Graph Explorer · Traversal")):
+        data = state.get(key, {})
+        if not data.get("result") or data.get("dirty"):
+            continue
+        try:
+            problem, result = data["result"]
+            if renderer == "workbench":
+                current = make_problem(input_lines(data["tasks"]), input_lines(data["slots"]), data["conflicts"])
+            else:
+                current = make_graph(input_lines(data["nodes"]), data["edges"], data.get("weights"))
+                if data["start"] != result.start or data["method"] != result.method or not result.steps:
+                    continue
+            if current == problem:
+                results[key] = (label, renderer, problem, result)
+        except (ValueError, KeyError, TypeError):
+            pass
+    return results
+
+
 def render_visualizations() -> None:
-    render_experience("visualizations")
+    masthead("VISUAL STUDIES", "AN INTERACTIVE FIELD OF POSSIBILITIES")
+    results = visualization_results(st.session_state)
+    labels = {key: value[0] for key, value in results.items()}
+    labels["illustration"] = "Decorative study · illustrative only"
+    with st.container(key="studio_page"):
+        if st.session_state.get("viz_source") not in labels:
+            st.session_state["viz_source"] = next(iter(labels))
+        source = st.selectbox("Visualization source", list(labels), format_func=labels.get, key="viz_source")
+        if not results:
+            st.info("No current computed results are available. Solve a problem in Studio or Workbench, or run a Graph Explorer traversal. Edited or incomplete inputs require a new run.")
+        if source != "illustration":
+            _, renderer, problem, result = results[source]
+            st.caption("Actual recorded solver output · matches the current inputs. No solver is run by this view.")
+            if renderer == "studio":
+                _render_solution(result, problem)
+            elif renderer == "workbench":
+                render_result(problem, result)
+            else:
+                index = st.slider("Traversal step", 0, len(result.steps) - 1, len(result.steps) - 1,
+                                  key=f"viz_step_{hash((problem, result))}")
+                _render_stage(problem, result, index, result.method)
+        else:
+            st.caption("Authored animation · these nodes and connections are decorative, not computed solver results.")
+    if source == "illustration":
+        render_experience("visualizations", show_masthead=False)
 
 
 def render_workbench() -> None:
