@@ -2,14 +2,16 @@
 
 from copy import deepcopy
 from html import escape
+from hashlib import sha256
 from itertools import combinations
 import json
 import os
 
+import pandas as pd
 import streamlit as st
 
 from explanations import explain_model, render_explanation, solution_status
-from ai_interpretation import CATEGORY_ALIASES, DEFAULT_MODEL, InterpretationError, apply_proposal, interpret, parse_proposal, proposal_inputs
+from ai_interpretation import CATEGORY_ALIASES, DEFAULT_MODEL, InterpretationError, answer_proposal, converse, parse_proposal, proposal_inputs
 from allocation_solver import MAX_COST, MAX_RESOURCES, MAX_TASKS as MAX_ALLOCATION_TASKS, MAX_UNITS, validate_names
 from graph_algorithms import MAX_NODES
 from graph_explorer import graph_markup, render_edge_costs
@@ -19,7 +21,7 @@ from workflow import SYLLABUS_AREAS, method_notes, open_inspector
 
 
 GOALS = {"feasible": "Find a valid schedule", "fewest_slots": "Minimize used slots · model only"}
-UNSUPPORTED_CHOICE = "Other / not supported yet"
+WORKFLOWS = ("Manual structured solving", "Natural-language solving")
 
 
 def _state() -> dict:
@@ -85,26 +87,9 @@ def _heading(number: str, title: str) -> None:
     st.html(f'<div class="wb-step"><span>{number}</span><h2>{title}</h2></div>')
 
 
-def _choose_category(slug: str) -> None:
-    st.session_state["_ps_kind"] = PROBLEM_TYPES[slug].label
-    _save("kind")
-
-
-def _supported_alternatives() -> None:
-    st.write("Choose the closest supported decision below only if its rules fit. "
-             "Your description is not automatically matched or simplified; requirements outside these scopes remain unsolved.")
-    for slug, definition in PROBLEM_TYPES.items():
-        if slug not in INPUT_RENDERERS:
-            continue
-        st.markdown(f"**{definition.label}**")
-        st.write(definition.description)
-        st.caption(definition.input_guidance)
-        st.button(f"Use {definition.label}", key=f"ps_choose_{slug}", on_click=_choose_category, args=(slug,))
-
-
 def _revise() -> None:
     _invalidate_inputs()
-    _state()["notice"] = "Your inputs and description are kept. Edit the structured inputs above, then build and solve the revised model."
+    _state()["notice"] = "Your structured inputs are kept. Edit the structured inputs above, then build and solve the revised model."
 
 
 def _pair_editor(field: str, names: list[str], maximum: int, label: str) -> None:
@@ -121,7 +106,7 @@ def _pair_editor(field: str, names: list[str], maximum: int, label: str) -> None
 
 
 def _scheduling_inputs(data: dict) -> None:
-    _heading("3.1", "What needs a place?")
+    _heading("2.1", "What needs a place?")
     tasks, slots = st.columns(2, gap="large")
     with tasks:
         st.text_area("Tasks · one per line", key="_ps_tasks", height=145, max_chars=4000,
@@ -131,11 +116,11 @@ def _scheduling_inputs(data: dict) -> None:
         st.text_area("Time slots · one per line", key="_ps_slots", height=145, max_chars=2000,
                      placeholder="Morning\nAfternoon", on_change=_save, args=("slots",),
                      help=f"Up to {MAX_SLOTS} distinct, non-overlapping time slots.")
-    _heading("3.2", "What must stay apart?")
+    _heading("2.2", "What must stay apart?")
     names = _lines(data["tasks"])
     _pair_editor("conflicts", names, MAX_TASKS, "Tasks that cannot share a slot")
     st.caption("Each task occupies one slot. Tasks may run together unless a conflict is selected. Durations, deadlines, ordering, and capacity are not modelled.")
-    _heading("3.3", "What counts as success?")
+    _heading("2.3", "What counts as success?")
     st.selectbox("Scheduling objective", list(GOALS), format_func=GOALS.get, key="_ps_goal",
                  on_change=_save, args=("goal",))
     if data["goal"] == "fewest_slots":
@@ -143,7 +128,7 @@ def _scheduling_inputs(data: dict) -> None:
 
 
 def _routing_inputs(data: dict) -> None:
-    _heading("3.1", "Define the network.")
+    _heading("2.1", "Define the network.")
     nodes, edges = st.columns([1, 1.5], gap="large")
     with nodes:
         st.text_area("Locations · one per line", key="_ps_nodes", height=145, max_chars=1000,
@@ -153,14 +138,14 @@ def _routing_inputs(data: dict) -> None:
         _pair_editor("edges", _lines(data["nodes"]), MAX_NODES, "Two-way connections")
         st.caption("Connections have the same cost in both directions. Isolated locations are allowed; they can make a route impossible.")
     render_edge_costs(data, "_ps_", _invalidate_inputs)
-    _heading("3.2", "Where should the route go?")
+    _heading("2.2", "Where should the route go?")
     source, target = st.columns(2, gap="large")
     names = list(dict.fromkeys(_lines(data["nodes"])))
     with source:
         st.selectbox("Start", names, key="_ps_source", disabled=not names, on_change=_save, args=("source",))
     with target:
         st.selectbox("Destination", names, key="_ps_target", disabled=not names, on_change=_save, args=("target",))
-    _heading("3.3", "Find the lowest total cost.")
+    _heading("2.3", "Find the lowest total cost.")
     st.caption("Minimize the sum of connection costs between two different locations. Costs must be finite, from 0 to 1 trillion. One-way links, negative costs, capacities, and multiple routes are unsupported. No costs are inferred from location names.")
 
 
@@ -177,7 +162,7 @@ def _allocation_quantity(data: dict, field: str, name: str, label: str, minimum:
 
 
 def _allocation_inputs(data: dict) -> None:
-    _heading("3.1", "Resources meet requirements.")
+    _heading("2.1", "Resources meet requirements.")
     resources_column, tasks_column = st.columns(2, gap="large")
     with resources_column:
         st.text_area("Resources · one per line", key="_ps_allocation_resources", height=140, max_chars=1000,
@@ -198,13 +183,13 @@ def _allocation_inputs(data: dict) -> None:
     previous = data["eligible_resources"]
     data["eligible_resources"] = {name: [resource for resource in previous.get(name, resources) if resource in resources]
                                   for name in tasks}
-    _heading("3.2", "How much is available?")
+    _heading("2.2", "How much is available?")
     st.caption("New resources start with capacity 0. Enter available units for each resource.")
     columns = st.columns(2)
     for index, name in enumerate(resources):
         with columns[index % 2]:
             _allocation_quantity(data, "capacities", name, f"{name} · capacity", 0)
-    _heading("3.3", "What does each task need?")
+    _heading("2.3", "What does each task need?")
     st.caption("New tasks start with requirement 1 and all current resources eligible. Review both values. An empty eligible set makes that task impossible to assign.")
     for name in tasks:
         demand, eligible = st.columns([1, 2], gap="large")
@@ -215,7 +200,7 @@ def _allocation_inputs(data: dict) -> None:
             st.session_state[key] = data["eligible_resources"][name]
             st.multiselect(f"{name} · eligible resources", resources, key=key,
                            on_change=_save_allocation_value, args=("eligible_resources", name, key))
-    _heading("3.4", "What counts as success?")
+    _heading("2.4", "What counts as success?")
     st.selectbox("Allocation objective", ("feasible", "min_cost"), key="_ps_allocation_goal",
                  format_func=lambda value: "Find a feasible allocation" if value == "feasible" else "Minimize total allocation cost",
                  on_change=_save, args=("allocation_goal",))
@@ -330,8 +315,8 @@ def _render_solution(solution: Solution, model: Model) -> None:
                      hide_index=True, width="stretch")
 
 
-def _inspect(model: Model, solution: Solution | None) -> None:
-    open_inspector(st.session_state, model, solution)
+def _inspect(model: Model, solution: Solution | None, origin="manual") -> None:
+    open_inspector(st.session_state, model, solution, origin=origin)
 
 
 def _ai_setting(name: str, default="") -> str:
@@ -346,6 +331,8 @@ def _ai_setting(name: str, default="") -> str:
 
 def _reset_ai_review() -> None:
     st.session_state["_ai_reviewed"] = False
+    st.session_state.pop("ai_solution", None)
+    st.session_state.pop("ai_solution_proposal", None)
 
 
 def _edit_ai_proposal() -> None:
@@ -353,120 +340,376 @@ def _edit_ai_proposal() -> None:
     _reset_ai_review()
 
 
-def _accept_ai() -> None:
-    try:
-        if not st.session_state.get("_ai_reviewed"):
-            raise InterpretationError("Review the proposal before accepting it.")
-        apply_proposal(st.session_state, st.session_state["ai_proposal_text"], st.session_state["ai_source"])
-    except ValueError as exc:
-        st.session_state["ai_error"] = str(exc)
-    else:
-        for key in ("ai_proposal_text", "ai_source", "ai_error", "_ai_reviewed", "_ai_proposal_editor"):
-            st.session_state.pop(key, None)
+
+def _proposal_facts(proposal: dict) -> tuple[list[dict], list[str]]:
+    """Display-only facts and questions derived from validated structured inputs."""
+    kind = CATEGORY_ALIASES.get(proposal["category"])
+    section = proposal.get(kind) if kind else None
+    rows, questions = [], []
+
+    def fact(label, value, question):
+        if value is None or value == "" or value == []:
+            questions.append(question)
+        else:
+            rows.append({"Fact": label, "Extracted input": str(value)})
+
+    if section is None:
+        if kind:
+            questions.append("What are the structured inputs for this problem? Complete its input section in the technical details.")
+        return rows, questions
+    if kind == "scheduling":
+        fact("Sessions / tasks", ", ".join(section["tasks"]), "What are the names of each session or task?")
+        fact("Available time periods", ", ".join(section["slots"]), "Which non-overlapping time periods are available? Classroom names are not time periods.")
+        fact("Tasks that cannot overlap", None if section["conflicts"] is None else
+             "; ".join(f"{pair['first']} and {pair['second']}" for pair in section["conflicts"]) or "No conflicting pairs declared",
+             "Which sessions share a professor or otherwise cannot run at the same time?")
+        fact("Objective", GOALS.get(section["goal"]), "Do you need any valid schedule or the fewest time slots (model only)?")
+    elif kind == "routing":
+        fact("Locations", ", ".join(section["nodes"]), "Which locations belong to the network?")
+        fact("Start", section["source"], "Where should the route start?")
+        fact("Destination", section["target"], "What is the destination?")
+        for edge in section["connections"]:
+            label = f"{edge['first']} ↔ {edge['second']}"
+            fact(label + " cost", edge["cost"], f"What is the cost of the connection {label}?")
+        if not section["connections"]:
+            rows.append({"Fact": "Connections", "Extracted input": "No connections supplied"})
+        rows.append({"Fact": "Objective", "Extracted input": "Find a route with the lowest total connection cost"})
+    elif kind == "allocation":
+        if not section["resources"]:
+            questions.append("Which resources are available, and what is each capacity?")
+        for resource in section["resources"]:
+            fact(f"{resource['name']} capacity", resource["capacity"], f"What is the capacity of {resource['name']}?")
+        if not section["tasks"]:
+            questions.append("Which tasks need resources, and how much does each require?")
+        for task in section["tasks"]:
+            fact(f"{task['name']} requirement", task["requirement"], f"How much capacity does {task['name']} require?")
+            fact(f"{task['name']} eligible resources", None if task["eligible"] is None else
+                 ", ".join(task["eligible"]) or "None declared", f"Which resources can handle {task['name']}?")
+        for cost in section["costs"]:
+            fact(f"{cost['task']} → {cost['resource']} cost", cost["cost"],
+                 f"What is the cost of assigning {cost['task']} to {cost['resource']}?")
+        fact("Objective", {"feasible": "Find any feasible allocation", "min_cost": "Minimize total allocation cost"}.get(section["goal"]),
+             "Do you need any feasible allocation or the lowest total cost?")
+        if section["goal"] == "min_cost":
+            supplied = {(row["task"], row["resource"]) for row in section["costs"]}
+            for task in section["tasks"]:
+                for resource in task["eligible"] or []:
+                    if (task["name"], resource) not in supplied:
+                        questions.append(f"What is the cost of assigning {task['name']} to {resource}?")
+    return rows, questions
+
+
+def _render_clarification_form(proposal: dict, stale: bool) -> dict | None:
+    kind = CATEGORY_ALIASES.get(proposal["category"])
+    if kind is None:
+        return
+    section = deepcopy(proposal[kind])
+    if section is None:
+        section = {"scheduling": {"tasks": [], "slots": [], "conflicts": None, "goal": None},
+                   "routing": {"nodes": [], "connections": [], "source": None, "target": None},
+                   "allocation": {"resources": [], "tasks": [], "costs": [], "goal": None}}[kind]
+    # A changed proposal/source gets fresh controls; old form values never overwrite JSON edits.
+    version = sha256((st.session_state["ai_proposal_text"] + st.session_state.get("ai_source", "")).encode()).hexdigest()[:12]
+    prefix = "ai_answers_" + version
+    def key(name):
+        return prefix + "_" + name
+    def names(label, values, name):
+        return _lines(st.text_area(label + " (one per line)", value="\n".join(values), key=key(name)))
+    def choice(label, values, current, name, labels=None):
+        return st.selectbox(label, values, index=values.index(current) if current in values else None,
+                            format_func=lambda value: (labels or {}).get(value, value), key=key(name))
+    def rows(label, values, columns, name):
+        st.caption(label + " · add or delete rows as needed; blank cells stay unknown")
+        frame = pd.DataFrame({column: pd.Series([row.get(column) for row in values],
+                                              dtype="Float64" if column in ("cost", "capacity", "requirement") else "string")
+                              for column in columns})
+        edited = st.data_editor(frame,
+                                column_order=columns, num_rows="dynamic", hide_index=True,
+                                column_config={column: (st.column_config.NumberColumn(column.title(), step=1 if column in ("capacity", "requirement") else None)
+                                                        if column in ("cost", "capacity", "requirement") else
+                                                        st.column_config.TextColumn(column.replace("_", " ").title()))
+                                               for column in columns}, key=key(name))
+        result = edited.astype(object).where(pd.notna(edited), None).to_dict("records")
+        for row in result:
+            for column in ("capacity", "requirement"):
+                value = row.get(column)
+                if type(value) is float and value.is_integer():
+                    row[column] = int(value)
+        return result
+
+
+    with st.expander("Answer questions / edit extracted facts", expanded=bool(proposal["questions"] or _proposal_facts(proposal)[1])):
+        st.caption("Enter facts in the fields below and submit to refresh the proposal. No AI call or solver runs. "
+                   "For new resources or tasks, save their names first, then fill the eligibility controls. "
+                   "A free-text answer alone does not add a constraint to the solver.")
+        with st.form(key("form")):
+            if kind == "scheduling":
+                section["tasks"] = names("Sessions / tasks", section["tasks"], "tasks")
+                section["slots"] = names("Available time periods", section["slots"], "slots")
+                section["goal"] = choice("Scheduling objective", ["feasible", "fewest_slots"], section["goal"], "goal", GOALS)
+                status = choice("Conflict information", ["Unknown", "Enter conflicting pairs", "Confirmed: no conflicting pairs"],
+                                "Unknown" if section["conflicts"] is None else "Enter conflicting pairs" if section["conflicts"] else "Confirmed: no conflicting pairs", "conflict_status")
+                pairs = rows("Tasks that cannot overlap (include every shared-professor pair)", section["conflicts"] or [], ["first", "second"], "conflicts")
+                if status == "Confirmed: no conflicting pairs":
+                    section["conflicts"] = []
+                elif status == "Enter conflicting pairs":
+                    section["conflicts"] = pairs or None
+                else:
+                    section["conflicts"] = None
+                st.caption("If professor assignments are missing, keep conflicts unknown. Enter named pairs only after identifying which sessions share a professor. "
+                           "Room assignment and minimizing slots remain outside the current solver.")
+            elif kind == "routing":
+                section["nodes"] = names("Locations", section["nodes"], "nodes")
+                section["source"] = st.text_input("Starting location", value=section["source"] or "", key=key("source")).strip() or None
+                section["target"] = st.text_input("Destination", value=section["target"] or "", key=key("target")).strip() or None
+                section["connections"] = rows("Two-way connections and costs (one shared unit)", section["connections"], ["first", "second", "cost"], "connections")
+            else:
+                section["resources"] = rows("Resources and whole-unit capacities", section["resources"], ["name", "capacity"], "resources")
+                task_rows = rows("Tasks and whole-unit requirements", [{"name": row["name"], "requirement": row["requirement"]} for row in section["tasks"]], ["name", "requirement"], "tasks")
+                known = {row["name"]: row["eligible"] for row in section["tasks"]}
+                resources = [row["name"] for row in section["resources"] if row.get("name")]
+                tasks = []
+                for index, task in enumerate(task_rows):
+                    if not task.get("name"):
+                        tasks.append({**task, "eligible": None})
+                        continue
+                    existing = known.get(task["name"])
+                    eligible = st.multiselect(f"Eligible resources for {task['name']}", list(dict.fromkeys(resources + (existing or []))),
+                                              default=existing or [], key=key(f"eligible_{index}"))
+                    confirmed = st.checkbox(f"Eligibility for {task['name']} is complete", value=existing is not None, key=key(f"eligibility_known_{index}"))
+                    tasks.append({**task, "eligible": eligible if confirmed else None})
+                section["tasks"] = tasks
+                section["goal"] = choice("Allocation objective", ["feasible", "min_cost"], section["goal"], "goal",
+                                         {"feasible": "Any feasible allocation", "min_cost": "Minimum total cost"})
+                section["costs"] = rows("Cost for each eligible task–resource assignment (required for minimum cost)", section["costs"], ["task", "resource", "cost"], "costs")
+            resolved = {}
+            for index, question in enumerate(proposal["questions"]):
+                st.text(question)
+                answer = st.text_input("Your answer", key=key(f"answer_{index}"))
+                if st.checkbox("This answer is fully reflected in the structured fields above", key=key(f"resolved_{index}")):
+                    resolved[index] = answer
+            st.caption("Unconfirmed questions and all unsupported requirements remain in the proposal. Do not mark a question resolved if the fields cannot represent its rule.")
+            submitted = st.form_submit_button("Update proposal", disabled=stale)
+        if submitted:
+            try:
+                if stale:
+                    raise InterpretationError("The conversation changed. Send a follow-up before updating this model.")
+                updated = answer_proposal(proposal, section, resolved)
+                # Partial, schema-valid answers can be saved; model validation still gates solving.
+                text = json.dumps(updated, indent=2, ensure_ascii=False)
+                parse_proposal(text)
+                st.session_state["ai_proposal_text"] = text
+                st.session_state["_ai_proposal_editor"] = text
+                _reset_ai_review()
+                st.session_state.pop("ai_error", None)
+                return updated
+            except ValueError as exc:
+                st.error("Answers were not applied: " + str(exc))
+
+
+def _new_ai_conversation():
+    for key in ("ai_chat_messages", "ai_chat_error", "ai_proposal_text", "ai_source", "ai_error", "_ai_proposal_editor", "ai_review_open", "ai_inspector_notice"):
+        st.session_state.pop(key, None)
+    st.session_state["ps_chat_context"] = ""
+    _reset_ai_review()
+
+
+def _render_ai_chat(data):
+    st.markdown("**Talk through your problem**")
+    st.caption("Gemini helps explain and model your problem. Chat is not a verified solver result. "
+               "Sending a message shares this conversation and its current structured proposal with Google Gemini.")
+    messages = st.session_state.setdefault("ai_chat_messages", [])
+    if messages or "ai_proposal_text" in st.session_state:
+        st.button("New conversation", key="ai_new_chat", on_click=_new_ai_conversation)
+    key = _ai_setting("GEMINI_API_KEY")
+    if not key:
+        st.info("Configure GEMINI_API_KEY to enable chat. Manual structured solving remains available.")
+    # Reserve history above the input; rendering it after submission shows the new reply without a second rerun.
+    history_area = st.container()
+    message = st.chat_input("Describe your problem or answer a follow-up question", key="ai_chat_input", disabled=not key)
+    if message:
+        try:
+            previous = parse_proposal(st.session_state["ai_proposal_text"]) if "ai_proposal_text" in st.session_state else None
+            with st.spinner("Thinking through your problem…"):
+                response = converse(messages + [{"role": "user", "content": message}], key,
+                                    _ai_setting("DISCRETEOPS_AI_MODEL", DEFAULT_MODEL), previous)
+            messages.extend([{"role": "user", "content": message}, {"role": "assistant", "content": response["reply"]}])
+            st.session_state["ai_proposal_text"] = json.dumps(response["proposal"], indent=2, ensure_ascii=False)
+            data["description"] = "\n\n".join(item["content"] for item in messages if item["role"] == "user")
+            st.session_state["ps_chat_context"] = data["description"]
+            st.session_state["ai_source"] = data["description"]
+            st.session_state.pop("_ai_proposal_editor", None)
+            st.session_state.pop("ai_chat_error", None)
+            st.session_state["ai_review_open"] = False
+            _reset_ai_review()
+        except InterpretationError as exc:
+            st.session_state["ai_chat_error"] = str(exc)
+            _reset_ai_review()
+    with history_area:
+        for item in messages:
+            with st.chat_message(item["role"]):
+                st.text(item["content"])
+    if st.session_state.get("ai_chat_error"):
+        st.error(st.session_state["ai_chat_error"])
+        st.caption("The message was not added to the conversation. Resend it to retry; your previous inputs are preserved.")
+    if messages and "ai_proposal_text" in st.session_state and not st.session_state.get("ai_review_open"):
+        try:
+            proposal = parse_proposal(st.session_state["ai_proposal_text"])
+            pending = list(dict.fromkeys(proposal["questions"] + _proposal_facts(proposal)[1]))
+            if pending:
+                st.caption("Before solving: " + " ".join(pending))
+            if proposal["unsupported_requirements"]:
+                st.warning("The current tools cannot satisfy these requirements: " + "; ".join(proposal["unsupported_requirements"]))
+        except ValueError:
+            st.warning("The edited structured inputs need correction. Open model review to repair them before continuing.")
 
 
 def _render_ai_intake(data: dict) -> None:
-    with st.expander("AI-assisted interpretation · optional"):
-        st.caption("Interpret with AI sends only this description to Google Gemini. It proposes inputs, not solutions. "
-                   "Nothing is sent on typing or navigation. Review extracted facts and assumptions before loading them.")
-        key = _ai_setting("GEMINI_API_KEY")
-        if not key:
-            st.info("To enable AI, configure GEMINI_API_KEY in the server environment or .streamlit/secrets.toml. Manual entry remains available.")
-        if st.button("Interpret with AI", key="ai_interpret", disabled=not key or not data["description"].strip()):
-            for field in ("ai_proposal_text", "ai_source", "ai_error", "_ai_proposal_editor"):
-                st.session_state.pop(field, None)
-            _reset_ai_review()
-            try:
-                with st.spinner("Extracting a proposal for your review…"):
-                    proposal = interpret(data["description"], key, _ai_setting("DISCRETEOPS_AI_MODEL", DEFAULT_MODEL))
-                st.session_state["ai_proposal_text"] = json.dumps(proposal, indent=2, ensure_ascii=False)
-                st.session_state["ai_source"] = data["description"]
-            except InterpretationError as exc:
-                st.session_state["ai_error"] = str(exc)
-        if st.session_state.get("ai_error"):
-            st.error(st.session_state["ai_error"])
+    st.caption("Understand → Clarify → Build model → Review → Solve → Explain")
+    _render_ai_chat(data)
     if "ai_proposal_text" not in st.session_state:
         return
+    if not st.session_state.get("ai_review_open", False):
+        if not st.button("Build model for review", key="ai_review_model", type="primary",
+                         disabled=bool(st.session_state.get("ai_chat_error"))):
+            return
+        st.session_state["ai_review_open"] = True
+    if notice := st.session_state.pop("ai_inspector_notice", None):
+        st.info(notice)
+    _heading("03–04", "Review your mathematical model.")
     st.markdown("**AI proposal · not a solver result**")
     stale = st.session_state.get("ai_source") != data["description"]
     if stale:
-        st.warning("The description changed. Interpret it again; this earlier proposal cannot be accepted.")
-    with st.expander("Review / edit extracted inputs (JSON)"):
-        st.caption("Correct facts here, or clarify the description and interpret again. Resolve questions explicitly; "
-                   "do not remove an unsupported requirement merely to make the model solve. You can also enter inputs manually below.")
-        if "_ai_proposal_editor" not in st.session_state:
-            st.session_state["_ai_proposal_editor"] = st.session_state["ai_proposal_text"]
-        st.text_area("Proposed structured inputs", key="_ai_proposal_editor", height=300,
-                     max_chars=50000, on_change=_edit_ai_proposal)
+        st.warning("The conversation changed. Send a follow-up to refresh this model before solving.")
     ready = False
+    model = None
     try:
         proposal = parse_proposal(st.session_state["ai_proposal_text"])
-        st.text(proposal["summary"])
-        st.caption("Proposed category: " + proposal["category"])
-        for title, field in (("Assumptions to review", "assumptions"), ("Questions to resolve", "questions"),
-                             ("Unsupported requirements", "unsupported_requirements")):
-            if proposal[field]:
-                st.markdown(f"**{title}**")
-                for detail in proposal[field]:
-                    st.text("• " + detail)
-        if CATEGORY_ALIASES.get(proposal["category"]) == "scheduling":
-            st.markdown("**Handoff to Task scheduling**")
-            section = proposal["scheduling"]
-            if section is not None:
-                st.table([
-                    {"Proposal field": "scheduling.tasks", "Studio input": "Tasks", "Extracted value": ", ".join(section["tasks"]) or "Missing — enter session/task names"},
-                    {"Proposal field": "scheduling.slots", "Studio input": "Time slots", "Extracted value": ", ".join(section["slots"]) or "Missing — enter available time periods"},
-                    {"Proposal field": "scheduling.conflicts", "Studio input": "Conflicting task pairs", "Extracted value": (
-                        "Missing — specify pairs" if section["conflicts"] is None else
-                        "; ".join(f"{pair['first']} / {pair['second']}" for pair in section["conflicts"]) or "No conflicting pairs declared")},
-                    {"Proposal field": "scheduling.goal", "Studio input": "Objective", "Extracted value": GOALS.get(section["goal"], "Missing — specify objective")},
-                ])
-            st.caption("Edit these fields in the JSON proposal above. Loading copies them into the existing Task scheduling form; it does not run a solver. "
-                       "Room assignment and classroom capacity are not handled. Minimum-slot optimization is model-only.")
+        summary_area = st.container()
+        proposal = _render_clarification_form(proposal, stale) or proposal
+        with summary_area:
+            kind = CATEGORY_ALIASES.get(proposal["category"])
+            st.markdown("**How we understood your problem**")
+            st.text(proposal["summary"].strip() or "No explanation was supplied. Review the extracted inputs below.")
+            st.caption("Proposed category: " + (PROBLEM_TYPES[kind].label if kind else "Unsupported problem"))
+            facts, missing_questions = _proposal_facts(proposal)
+            st.markdown("**Extracted facts · check against your description**")
+            if facts:
+                st.table(facts)
+            else:
+                st.text("No structured facts are available yet.")
+            st.markdown("**Assumptions to review**")
+            for assumption in proposal["assumptions"]:
+                st.text("• " + assumption)
+            if not proposal["assumptions"]:
+                st.text("No assumptions were listed by the interpreter.")
+            questions = list(dict.fromkeys(proposal["questions"] + missing_questions))
+            if questions:
+                st.markdown("**Missing information · questions to answer**")
+                for question in questions:
+                    st.text("• " + question)
+                st.warning("Answer the questions in chat or the form below, then review the updated model. Confirm only questions you have resolved.")
+            if proposal["unsupported_requirements"]:
+                st.markdown("**Unsupported requirements**")
+                st.warning("Solving is blocked by the unsupported requirements below. Keep them in the proposal; the existing solver cannot satisfy the full problem.")
+                for requirement in proposal["unsupported_requirements"]:
+                    st.text("• " + requirement)
+            if kind == "scheduling":
+                st.caption("The model uses the recorded sessions, periods, conflict pairs and objective. "
+                           "Room assignment and classroom capacity are not handled. Minimum-slot optimization is model-only.")
         _, model = proposal_inputs(proposal)
-        st.info("Proposed mathematical model, generated locally from these inputs. Review its variables, constraints, objective and assumptions; no solver has run for this proposal.")
-        _render_model(model)
-        ready = model.supported and not proposal["questions"] and not proposal["unsupported_requirements"]
-        if proposal["questions"]:
-            st.warning("Before loading, answer each question listed above, update the extracted fields, and remove only questions you have resolved.")
-        if proposal["unsupported_requirements"]:
-            st.warning("Loading is blocked by the unsupported requirements listed above. Keep them in the proposal; the existing solver cannot satisfy the full problem.")
+        ready = model.supported and not questions and not proposal["unsupported_requirements"] and not st.session_state.get("ai_chat_error")
         if not model.supported:
             st.warning(model.support_note)
     except ValueError as exc:
         st.warning("Proposal needs attention: " + str(exc))
+    with st.expander("View technical details (JSON)", expanded=False):
+        st.caption("Edit the structured inputs here, then review the refreshed summary. Solving uses only validated structured fields, never the summary text. "
+                   "Resolve questions explicitly; do not remove unsupported requirements merely to make the model solve.")
+        if "_ai_proposal_editor" not in st.session_state:
+            st.session_state["_ai_proposal_editor"] = st.session_state["ai_proposal_text"]
+        st.text_area("Proposed structured inputs", key="_ai_proposal_editor", height=300,
+                     max_chars=50000, on_change=_edit_ai_proposal)
+    if model is not None:
+        _render_model(model)
     st.checkbox("I reviewed the extracted facts, objective and assumptions against my real problem.", key="_ai_reviewed")
-    st.button("Load reviewed proposal into Studio", key="ai_accept", on_click=_accept_ai,
-              disabled=stale or not ready or not st.session_state.get("_ai_reviewed"))
-    st.caption("Loading replaces only this category's inputs and clears its prior result. Other category drafts stay intact. Edit the form, build the model, then choose Solve explicitly.")
+    can_solve = bool(ready and not stale and st.session_state.get("_ai_reviewed"))
+    _heading("05", "Solve the reviewed model.")
+    if st.button("Solve reviewed model", key="ai_solve", type="primary", disabled=not can_solve) and can_solve:
+        # The same dispatcher and local model used by manual solving; prose is never an input.
+        with st.spinner("Running the existing solver and checking the result…"):
+            st.session_state["ai_solution"] = solve_model(model)
+            st.session_state["ai_solution_proposal"] = st.session_state["ai_proposal_text"]
+    if (can_solve and st.session_state.get("ai_solution") is not None
+            and st.session_state.get("ai_solution_proposal") == st.session_state["ai_proposal_text"]):
+        _heading("06", "What the result means.")
+        solution = st.session_state["ai_solution"]
+        _render_natural_solution(solution, model)
+        definition = PROBLEM_TYPES[model.kind]
+        if (definition.inspector and solution.status == "solved" and solution.optimal is not False
+                and (solution.schedule_trace is not None or solution.traversal is not None)):
+            st.button(definition.inspector_label, key="ai_inspect", on_click=_inspect, args=(model, solution, "natural"))
+            st.caption("Inspect the same recorded solver run. Input edits return to this chat proposal and require review and a new solve; independent inspector drafts are preserved.")
+
+
+def _render_natural_solution(solution: Solution, model: Model) -> None:
+    """Explain verified solver data in prose, without another Gemini call."""
+    if solution.status == "solved" and solution.optimal is not False:
+        st.success(solution_status(solution))
+    else:
+        st.warning(solution_status(solution))
+    st.write(solution.explanation)
+    if solution.schedule:
+        st.text("The schedule assigns " + "; ".join(f"{task} to {slot}" for task, slot in solution.schedule) + ".")
+    if solution.route:
+        st.text("The route is " + " → ".join(solution.route) + f", with total cost {solution.objective_value:g} in your chosen unit.")
+    if model.kind == "allocation":
+        if solution.optimal is not None and solution.objective_value is not None:
+            st.text(f"The total allocation cost is {solution.objective_value:g} in your chosen unit.")
+        for table in solution.tables:
+            if table.title == "Task allocation":
+                st.text("The allocation assigns " + "; ".join(f"{row[0]} to {row[1]}" for row in table.rows) + ".")
+    for issue in solution.diagnostics:
+        st.text(issue)
+    st.caption("This result applies only to the reviewed structured model and its assumptions. It was computed by the local solver, not Gemini.")
+    with st.expander("Solution details and mathematical explanation", expanded=False):
+        _render_solution(solution, model)
+
+
+def _save_workflow():
+    st.session_state["ps_workflow"] = st.session_state["_ps_workflow"]
 
 
 def render_problem_studio_content() -> None:
     data = _state()
-    fields = {"kind", "description"} | {field for item in PROBLEM_TYPES.values() for field in item.input_defaults}
+    st.html('<section class="ps-intro"><p class="eyebrow">PROBLEM STUDIO</p>'
+            '<h1>Give the problem<br><em>a precise shape.</em></h1>'
+            '<p>Enter the facts yourself, or talk through the problem. Both paths lead to a model you can review and a result you can verify.</p></section>')
+    if "_ps_workflow" not in st.session_state:
+        st.session_state["_ps_workflow"] = st.session_state.get("ps_workflow", WORKFLOWS[0])
+    workflow = st.radio("Choose your workflow", WORKFLOWS, key="_ps_workflow", horizontal=True, on_change=_save_workflow)
+    if workflow == WORKFLOWS[1]:
+        st.session_state.setdefault("ps_chat_context", st.session_state.get("ai_source", ""))
+        _render_ai_intake({"description": st.session_state["ps_chat_context"]})
+    else:
+        _render_manual_workflow(data)
+
+
+def _render_manual_workflow(data: dict) -> None:
+    if data["kind"] not in {item.label for item in PROBLEM_TYPES.values()}:
+        data["kind"] = None
+        st.session_state.pop("_ps_kind", None)
+    fields = {"kind"} | {field for item in PROBLEM_TYPES.values() for field in item.input_defaults}
     for field in fields:
         if f"_ps_{field}" not in st.session_state:
             st.session_state[f"_ps_{field}"] = data[field]
-    st.html('<section class="ps-intro"><p class="eyebrow">PROBLEM STUDIO / START HERE</p>'
-            '<h1>Give the problem<br><em>a precise shape.</em></h1>'
-            '<p>Describe the decision you need to make. Choose a supported problem type, structure the data, and follow the model through to an explained result.</p></section>')
-    st.caption("01 Describe → 02 Choose category → 03 Structure inputs → 04 Review model → 05 Solve → 06 Inspect & revise")
-    _heading("01", "Describe the decision.")
-    description = st.text_area("Describe your problem (optional)", key="_ps_description", height=100, max_chars=2000,
-                               placeholder="What decision are you trying to make, and what matters for a useful result?",
-                               help="Click outside this field or press Ctrl+Enter (⌘+Enter on Mac) to apply your text.")
-    # Read the widget's committed value before rendering dependent AI controls.
-    # Prose edits must not invalidate structured inputs or run an interpretation.
-    if description != data["description"]:
-        data["description"] = description
-        _reset_ai_review()
-    st.caption("Your description stays context unless you explicitly request AI interpretation and accept its reviewed inputs. Solvers use only the structured inputs and rules below.")
-    _render_ai_intake(data)
-    _heading("02", "Choose the problem category.")
+    st.caption("Choose category → Enter inputs → Build model → Review → Solve → Explain")
+
+    _heading("01", "Choose the problem category.")
     labels = {definition.label: slug for slug, definition in PROBLEM_TYPES.items()}
     kind, sample = st.columns([2, 1], vertical_alignment="bottom")
     with kind:
-        st.radio("Choose a supported problem type", [*labels, UNSUPPORTED_CHOICE], key="_ps_kind",
+        st.radio("Choose a supported problem type", list(labels), key="_ps_kind",
                  index=None, horizontal=True, on_change=_save, args=("kind",))
     slug = labels.get(data["kind"])
     definition = PROBLEM_TYPES.get(slug)
@@ -482,8 +725,8 @@ def render_problem_studio_content() -> None:
         st.caption(definition.input_guidance)
         st.caption(f"Type solver: {definition.solver_name}")
         if definition.example_context:
-            st.caption("Example scenario: " + definition.example_context + " Load example replaces this category's inputs; your description and other category drafts stay intact.")
-        _heading("03", "Structure your inputs.")
+            st.caption("Example scenario: " + definition.example_context + " Load example replaces this category's inputs; other category drafts stay intact.")
+        _heading("02", "Structure your inputs.")
         with st.container(key="ps_inputs"):
             render_inputs(data)
         try:
@@ -492,13 +735,10 @@ def render_problem_studio_content() -> None:
             st.warning("Before building the model: " + str(exc))
             st.caption("Complete or correct these inputs, or load the example to see a complete formulation. No solver has run for this draft.")
     elif data["kind"] is None:
-        st.info("Choose a supported type to see its data requirements and solver. You can start with the form or keep a description as context.")
-    else:
-        st.warning("This problem type is not supported. You can keep your description, but no model or solution will be generated. Choose a supported type only if its stated assumptions fit your problem.")
-        _supported_alternatives()
+        st.info("Choose a supported category to enter its inputs, review a model, and solve.")
     if definition:
-        _heading("04", "Review the model and assumptions.")
-        st.caption("Build from the current inputs, then review Variables, Constraints, Objective, and modelling assumptions before solving. Rules mentioned only in your description are not included.")
+        _heading("03", "Review the model and assumptions.")
+        st.caption("Build from the current inputs, then review Variables, Constraints, Objective, and modelling assumptions before solving. Only the structured rules shown here are included.")
     if st.button("Build model ↗", key="ps_build", type="primary", disabled=candidate is None):
         data.update(model=candidate, solution=None, dirty=False)
     if data["dirty"] and definition:
@@ -506,12 +746,12 @@ def render_problem_studio_content() -> None:
     model = data["model"]
     if definition and model is not None and model == candidate:
         _render_model(model)
-        _heading("05", "Solve the structured problem.")
+        _heading("04", "Solve the structured problem.")
         if st.button("Solve this model ↗", key="ps_solve", type="primary", disabled=not model.supported):
             with st.spinner("Running the existing solver and checking the result…"):
                 data["solution"] = solve_model(model)
         if data["solution"] is not None:
-            _heading("06", "Inspect the result and revise.")
+            _heading("05", "Inspect the result and revise.")
             if data["description"].strip():
                 with st.expander("Your real-world context"):
                     st.text(data["description"])

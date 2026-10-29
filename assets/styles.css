@@ -127,7 +127,9 @@ button:focus-visible { outline:2px solid #8c9b64!important; outline-offset:4px; 
 /* Problem Studio shares the palette and numbered form headings. */
 .st-key-studio_page { max-width:1120px; padding:38px clamp(24px,4vw,64px) 32px; margin:auto; gap:16px; }
 .st-key-studio_page [data-testid="stVerticalBlock"] { gap:14px; }
-.ps-intro h1 { font-size:clamp(42px,5vw,70px); font-weight:500; line-height:1.05; letter-spacing:-.055em; margin:18px 0; padding:0; }
+.ps-intro { overflow:visible; }
+.ps-intro h1 { font-size:clamp(38px,5vw,70px); font-weight:500; line-height:1.16; letter-spacing:-.045em; margin:18px 0; padding:.08em .12em .16em 0; overflow:visible; overflow-wrap:break-word; }
+.ps-intro h1 em { display:inline-block; padding-right:.1em; }
 .ps-intro > p:last-child { max-width:570px; font-size:14px; color:var(--muted); line-height:1.8; margin:0 0 12px; }
 .st-key-studio_page [data-testid="stWidgetLabel"] p { font-size:12px; color:#525b49; }
 .st-key-studio_page textarea { background:#eeeee4; border-radius:2px; font-size:14px; line-height:1.8; }

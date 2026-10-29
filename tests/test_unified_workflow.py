@@ -8,7 +8,7 @@ from allocation_solver import solve_allocation
 from explanations import solution_status
 from graph_algorithms import traverse
 from problem_models import PROBLEM_TYPES, allocation_model, routing_model, scheduling_model, solve_model
-from problem_studio import UNSUPPORTED_CHOICE
+from problem_studio import WORKFLOWS
 from solver import solve
 
 
@@ -16,27 +16,20 @@ class UnifiedWorkflowTests(unittest.TestCase):
     def app(self):
         return AppTest.from_file("app.py", default_timeout=60).run()
 
-    def test_other_offers_explicit_alternatives_without_interpreting_description(self):
+    def test_two_workflows_have_distinct_entry_points(self):
         app = self.app()
-        context = "Optimize my entire business, including deadlines and multiple vehicle capacities."
-        app.text_area(key="_ps_description").set_value(context).run()
-        self.assertIsNone(app.radio(key="_ps_kind").value)
-        app.radio(key="_ps_kind").set_value(UNSUPPORTED_CHOICE).run()
-        self.assertTrue(app.button(key="ps_build").disabled)
-        for slug in PROBLEM_TYPES:
-            self.assertFalse(app.button(key=f"ps_choose_{slug}").disabled)
-        with patch("problem_models.traverse") as algorithm:
-            app.button(key="ps_choose_routing").click().run()
-            algorithm.assert_not_called()
-        self.assertEqual(app.radio(key="_ps_kind").value, "Network routing")
-        self.assertEqual(app.text_area(key="_ps_description").value, context)
-        self.assertTrue(app.button(key="ps_build").disabled)
-        self.assertTrue(any("Add at least one node" in item.value for item in app.warning))
+        self.assertEqual(app.radio(key="_ps_workflow").options, list(WORKFLOWS))
+        self.assertFalse(app.chat_input)
+        self.assertFalse(any(item.key == "_ps_description" for item in app.text_area))
+        app.radio(key="_ps_workflow").set_value(WORKFLOWS[1]).run()
+        self.assertEqual(len(app.chat_input), 1)
+        self.assertFalse(any(item.key == "_ps_kind" for item in app.radio))
+        self.assertFalse(any(item.key in ("ai_interpret", "ai_accept", "ps_build") for item in app.button))
+        self.assertFalse(any("Build a proposal from" in item.label for item in app.expander))
         self.assertFalse(app.exception)
 
     def test_examples_reset_objectives_and_preserve_other_drafts(self):
         app = self.app()
-        app.text_area(key="_ps_description").set_value("My planning context").run()
         app.radio(key="_ps_kind").set_value("Task scheduling").run()
         app.button(key="ps_example").click().run()
         app.selectbox(key="_ps_goal").select("fewest_slots").run()
@@ -50,7 +43,6 @@ class UnifiedWorkflowTests(unittest.TestCase):
         self.assertEqual(app.selectbox(key="_ps_allocation_goal").value, "feasible")
         app.radio(key="_ps_kind").set_value("Task scheduling").run()
         self.assertEqual(app.text_area(key="_ps_slots").value, "One\nTwo\nThree")
-        self.assertEqual(app.text_area(key="_ps_description").value, "My planning context")
         self.assertFalse(app.exception)
 
     def test_each_category_uses_existing_solver_and_can_revise_without_losing_inputs(self):

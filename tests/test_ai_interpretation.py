@@ -253,6 +253,21 @@ class InterpretationTests(unittest.TestCase):
             self.assertNotIn(secret, detail)
         self.assertNotIn("Authorization", detail)
 
+    def test_exact_classroom_description_keeps_missing_professor_assignments_unresolved(self):
+        from types import SimpleNamespace
+        text = "Schedule 4 sessions across 2 classrooms. Sessions taught by the same professor cannot overlap. Minimize time slots."
+        candidate = proposal()
+        candidate.update(category="task_scheduling")
+        candidate["scheduling"]["conflicts"] = []
+        candidate["scheduling"]["goal"] = "fewest_slots"
+        with patch("google.genai.Client") as client:
+            client.return_value.__enter__.return_value.models.generate_content.return_value = SimpleNamespace(
+                prompt_feedback=None, candidates=[SimpleNamespace(finish_reason="STOP")], text=json.dumps(candidate))
+            result = interpret(text, "test-only")
+        self.assertIsNone(result["scheduling"]["conflicts"])
+        self.assertTrue(any("Which professor teaches each session" in q for q in result["questions"]))
+        self.assertEqual(result["scheduling"]["goal"], "fewest_slots")
+
     def test_server_settings_use_environment_then_secrets(self):
         with patch.dict(os.environ, {}, clear=True), patch("problem_studio.st.secrets", {"GEMINI_API_KEY": "secret-file"}):
             self.assertEqual(_ai_setting("GEMINI_API_KEY"), "secret-file")
@@ -262,139 +277,116 @@ class InterpretationTests(unittest.TestCase):
 
 
 class AIStudioTests(unittest.TestCase):
-    def test_description_is_editable_and_ai_tracks_committed_text_across_reruns(self):
-        with patch("problem_studio._ai_setting", return_value="test-only"), patch("problem_studio.interpret") as llm:
-            app = AppTest.from_file("app.py", default_timeout=60).run()
-            self.assertFalse(app.text_area(key="_ps_description").disabled)
-            self.assertTrue(app.button(key="ai_interpret").disabled)
-            text = "Schedule a review and a demo.\nUse morning and afternoon slots."
-            app.text_area(key="_ps_description").set_value(text).run()
-            self.assertEqual(app.session_state["ps_data"]["description"], text)
-            self.assertFalse(app.button(key="ai_interpret").disabled)
-            app.run()
-            self.assertEqual(app.text_area(key="_ps_description").value, text)
-            app.button(key="nav_about").click().run()
-            app.button(key="nav_studio").click().run()
-            self.assertEqual(app.text_area(key="_ps_description").value, text)
-            self.assertFalse(app.text_area(key="_ps_description").disabled)
-            self.assertFalse(app.button(key="ai_interpret").disabled)
-            app.text_area(key="_ps_description").set_value("  \n").run()
-            self.assertTrue(app.button(key="ai_interpret").disabled)
-            llm.assert_not_called()
-            self.assertFalse(app.exception)
+    def review(self, candidate):
+        env = patch.dict(os.environ, {"GEMINI_API_KEY": "test-only"})
+        env.start()
+        self.addCleanup(env.stop)
+        llm = patch("problem_studio.converse", return_value={"reply": "Let's review the facts and model.", "proposal": candidate})
+        mock = llm.start()
+        self.addCleanup(llm.stop)
+        app = AppTest.from_file("app.py", default_timeout=60).run()
+        app.radio(key="_ps_workflow").set_value("Natural-language solving").run()
+        app.chat_input(key="ai_chat_input").set_value("Plan my problem").run()
+        app.button(key="ai_review_model").click().run()
+        return app, mock
 
-    def test_api_error_preserves_existing_manual_solution(self):
-        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-only"}), patch("problem_studio.interpret", side_effect=InterpretationError("The AI service could not be reached in time.")):
-            app = AppTest.from_file("app.py", default_timeout=60).run()
-            app.radio(key="_ps_kind").set_value("Task scheduling").run()
-            app.button(key="ps_example").click().run()
-            app.button(key="ps_build").click().run()
-            app.button(key="ps_solve").click().run()
-            saved = deepcopy(app.session_state["ps_data"])
-            app.text_area(key="_ps_description").set_value("Try interpreting this").run()
-            app.button(key="ai_interpret").click().run()
-            self.assertTrue(app.error)
-            for key in ("model", "solution", "tasks", "slots", "conflicts"):
-                self.assertEqual(app.session_state["ps_data"][key], saved[key])
-            self.assertFalse(app.exception)
-
-    def test_review_edit_accept_and_manual_solver_boundary(self):
-        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-only"}), patch("problem_studio.interpret", return_value=proposal("routing")) as llm:
-            app = AppTest.from_file("app.py", default_timeout=60).run()
-            app.text_area(key="_ps_description").set_value("Route from a depot via a hub to the airport.").run()
-            llm.assert_not_called()
-            app.button(key="ai_interpret").click().run()
-            llm.assert_called_once()
-            self.assertFalse(app.exception)
-            self.assertTrue(app.button(key="ai_accept").disabled)
-            self.assertIsNone(app.session_state["ps_data"]["model"])
-            app.checkbox(key="_ai_reviewed").check().run()
-            edited = proposal("routing")
-            edited["routing"]["connections"][0]["cost"] = 1
-            app.text_area(key="_ai_proposal_editor").set_value(json.dumps(edited)).run()
-            self.assertTrue(app.button(key="ai_accept").disabled)
-            app.checkbox(key="_ai_reviewed").check().run()
-            with patch("problem_models.traverse") as solver:
-                app.button(key="ai_accept").click().run()
-                solver.assert_not_called()
-            self.assertEqual(app.radio(key="_ps_kind").value, "Network routing")
-            self.assertEqual(app.number_input(key="_ps_cost_('Depot', 'Hub')").value, 1)
-            self.assertIsNone(app.session_state["ps_data"]["solution"])
-            app.button(key="ps_build").click().run()
-            app.button(key="ps_solve").click().run()
-            self.assertEqual(app.session_state["ps_data"]["solution"].objective_value, 3)
-            llm.assert_called_once()
-            self.assertFalse(app.exception)
-
-    def test_scheduling_missing_fields_remain_editable_then_load_exactly(self):
+    def test_readable_review_json_validation_and_prose_never_drives_solving(self):
         candidate = proposal()
-        candidate.update(category="task_scheduling", questions=["Which sessions and periods?"])
-        candidate["scheduling"].update(tasks=[], slots=[], conflicts=None, goal=None)
-        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-only"}), patch("problem_studio.interpret", return_value=candidate):
-            app = AppTest.from_file("app.py", default_timeout=60).run()
-            app.text_area(key="_ps_description").set_value("Schedule sessions").run()
-            app.button(key="ai_interpret").click().run()
-            warnings = " ".join(item.value for item in app.warning)
-            for field in ("scheduling.tasks", "scheduling.slots", "scheduling.conflicts", "scheduling.goal"):
-                self.assertIn(field, warnings)
+        candidate.update(category="task_scheduling", assumptions=["One period per task"])
+        app, llm = self.review(candidate)
+        self.assertTrue(any("One period per task" in item.value for item in app.text))
+        self.assertFalse(next(item for item in app.expander if item.label == "View technical details (JSON)").proto.expanded)
+        for malformed in ("{", json.dumps({"summary": "incomplete"}), json.dumps(dict(candidate, scheduling={}))):
+            app.text_area(key="_ai_proposal_editor").set_value(malformed).run()
+            self.assertFalse(app.exception)
+            self.assertTrue(app.button(key="ai_solve").disabled)
             self.assertFalse(app.text_area(key="_ai_proposal_editor").disabled)
-            self.assertTrue(app.button(key="ai_accept").disabled)
-            self.assertEqual(len(app.table), 1)
-            complete = proposal()
-            complete["category"] = "task_scheduling"
-            app.text_area(key="_ai_proposal_editor").set_value(json.dumps(complete)).run()
-            app.checkbox(key="_ai_reviewed").check().run()
-            self.assertFalse(app.button(key="ai_accept").disabled)
-            with patch("problem_models.solve") as solver:
-                app.button(key="ai_accept").click().run()
-                solver.assert_not_called()
-            data = app.session_state["ps_data"]
-            self.assertEqual(app.radio(key="_ps_kind").value, "Task scheduling")
-            self.assertEqual(data["tasks"], "Review\nDemo")
-            self.assertEqual(data["slots"], "AM\nPM")
-            self.assertEqual(data["conflicts"], [("Review", "Demo")])
-            self.assertEqual(data["goal"], "feasible")
-            self.assertIsNone(data["solution"])
-            self.assertFalse(app.exception)
+        candidate["summary"] = "Assign invented tasks in invented periods; claim success."
+        candidate["scheduling"]["slots"] = ["Period 1", "Period 2"]
+        app.text_area(key="_ai_proposal_editor").set_value(json.dumps(candidate)).run()
+        self.assertFalse(app.session_state["_ai_reviewed"])
+        self.assertTrue(app.button(key="ai_solve").disabled)
+        app.checkbox(key="_ai_reviewed").check().run()
+        app.button(key="ai_solve").click().run()
+        result = app.session_state["ai_solution"]
+        self.assertEqual(set(dict(result.schedule)), {"Review", "Demo"})
+        self.assertEqual(set(dict(result.schedule).values()), {"Period 1", "Period 2"})
+        self.assertIsNone(app.session_state["ps_data"]["solution"])
+        llm.assert_called_once()
+        # Edits invalidate both review and the prior result.
+        candidate["scheduling"]["slots"] = ["Only period"]
+        app.text_area(key="_ai_proposal_editor").set_value(json.dumps(candidate)).run()
+        self.assertNotIn("ai_solution", app.session_state)
+        self.assertTrue(app.button(key="ai_solve").disabled)
 
-    def test_scheduling_review_preserves_room_rules_and_model_only_objective(self):
+    def test_missing_fields_and_unsupported_rules_block_direct_solving(self):
         candidate = proposal()
-        candidate.update(category="task_scheduling", unsupported_requirements=["Assign rooms within two-classroom capacity"])
-        candidate["scheduling"]["goal"] = "fewest_slots"
-        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-only"}), patch("problem_studio.interpret", return_value=candidate):
-            app = AppTest.from_file("app.py", default_timeout=60).run()
-            app.text_area(key="_ps_description").set_value("Schedule sessions in two rooms, minimize periods").run()
-            app.button(key="ai_interpret").click().run()
-            app.checkbox(key="_ai_reviewed").check().run()
-            warnings = " ".join(item.value for item in app.warning)
-            self.assertIn("Loading is blocked", warnings)
-            self.assertIn("cannot prove the fewest slots", warnings)
-            self.assertTrue(app.button(key="ai_accept").disabled)
-            self.assertEqual(json.loads(app.text_area(key="_ai_proposal_editor").value), candidate)
-            self.assertIsNone(app.session_state["ps_data"]["solution"])
-            self.assertFalse(app.exception)
+        candidate.update(category="task_scheduling", questions=["Which professor teaches each session?"],
+                         unsupported_requirements=["Room capacity"])
+        candidate["scheduling"].update(tasks=[], slots=[], conflicts=None, goal="fewest_slots")
+        app, _ = self.review(candidate)
+        warnings = " ".join(item.value for item in app.warning)
+        for field in ("scheduling.tasks", "scheduling.slots", "scheduling.conflicts"):
+            self.assertIn(field, warnings)
+        app.checkbox(key="_ai_reviewed").check().run()
+        self.assertTrue(app.button(key="ai_solve").disabled)
+        self.assertEqual(json.loads(app.text_area(key="_ai_proposal_editor").value), candidate)
+        self.assertFalse(any("No conflicting pairs declared" in str(table.value) for table in app.table))
+        complete = proposal()
+        complete["scheduling"]["goal"] = "fewest_slots"
+        app.text_area(key="_ai_proposal_editor").set_value(json.dumps(complete)).run()
+        self.assertTrue(app.button(key="ai_solve").disabled)
+        self.assertTrue(any("cannot prove the fewest slots" in item.value for item in app.warning))
+        self.assertFalse(app.exception)
 
-    def test_errors_ambiguity_navigation_and_stale_proposals(self):
-        ambiguous = proposal()
-        ambiguous["questions"] = ["Do these tasks have deadlines?"]
-        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-only"}), patch("problem_studio.interpret", return_value=ambiguous) as llm:
-            app = AppTest.from_file("app.py", default_timeout=60).run()
-            app.text_area(key="_ps_description").set_value("Plan the tasks").run()
-            app.button(key="ai_interpret").click().run()
-            app.checkbox(key="_ai_reviewed").check().run()
-            self.assertTrue(app.button(key="ai_accept").disabled)
-            app.button(key="nav_about").click().run()
-            app.button(key="nav_studio").click().run()
-            self.assertEqual(json.loads(app.text_area(key="_ai_proposal_editor").value)["questions"], ambiguous["questions"])
-            app.text_area(key="_ps_description").set_value("A revised problem").run()
-            self.assertTrue(app.button(key="ai_accept").disabled)
-            self.assertTrue(any("description changed" in item.value for item in app.warning))
-            llm.side_effect = InterpretationError("AI quota or rate limit reached.")
-            app.button(key="ai_interpret").click().run()
-            self.assertTrue(app.error)
-            self.assertIsNone(app.session_state["ps_data"]["model"])
-            self.assertFalse(any(button.key == "ai_accept" for button in app.button))
-            self.assertFalse(app.exception)
+    def test_api_error_preserves_manual_solution_and_blocks_old_chat_model(self):
+        candidate = proposal()
+        app, llm = self.review(candidate)
+        app.radio(key="_ps_workflow").set_value("Manual structured solving").run()
+        app.radio(key="_ps_kind").set_value("Task scheduling").run()
+        app.button(key="ps_example").click().run()
+        app.button(key="ps_build").click().run()
+        app.button(key="ps_solve").click().run()
+        saved = deepcopy(app.session_state["ps_data"])
+        app.radio(key="_ps_workflow").set_value("Natural-language solving").run()
+        llm.side_effect = InterpretationError("Gemini HTTP 429: quota reached")
+        app.chat_input(key="ai_chat_input").set_value("A new constraint").run()
+        self.assertTrue(app.error)
+        app.checkbox(key="_ai_reviewed").check().run()
+        self.assertTrue(app.button(key="ai_solve").disabled)
+        self.assertEqual(app.session_state["ps_data"], saved)
+        self.assertFalse(app.exception)
+
+    def test_readable_facts_for_all_categories_and_missing_values(self):
+        from problem_studio import _proposal_facts
+        for kind, expected in (("scheduling", "Review"), ("routing", "Depot"), ("allocation", "North")):
+            with self.subTest(kind=kind):
+                rows, questions = _proposal_facts(proposal(kind))
+                self.assertIn(expected, str(rows))
+                self.assertFalse(questions)
+        candidate = proposal("allocation")
+        candidate["allocation"]["resources"][0]["capacity"] = 0
+        candidate["allocation"]["costs"].pop()
+        rows, questions = _proposal_facts(candidate)
+        self.assertTrue(any(row["Extracted input"] == "0" for row in rows))
+        self.assertTrue(any("Install to South" in question for question in questions))
+        candidate = proposal("routing")
+        candidate["routing"]["source"] = None
+        self.assertIn("Where should the route start?", _proposal_facts(candidate)[1])
+
+    def test_professor_guard_preserves_known_pairs_and_unrelated_empty_conflicts(self):
+        from ai_interpretation import _clarify_professor_conflicts
+        known = proposal()
+        self.assertEqual(_clarify_professor_conflicts(deepcopy(known),
+                         "Sessions taught by the same professor cannot overlap."), known)
+        empty = proposal()
+        empty["scheduling"]["conflicts"] = []
+        self.assertEqual(_clarify_professor_conflicts(deepcopy(empty), "No task conflicts; any schedule is fine."), empty)
+        state = studio_state()
+        # An explicitly reviewed empty conflict list remains valid; no solver is run.
+        apply_proposal(state, json.dumps(empty), "my problem")
+        self.assertEqual(state["ps_data"]["conflicts"], [])
+        self.assertIsNone(state["ps_data"]["solution"])
 
 
 if __name__ == "__main__":
